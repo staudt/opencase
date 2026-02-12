@@ -1,29 +1,68 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ChevronLeft, FolderTree, Plus } from 'lucide-react';
+import { ChevronLeft, FolderTree, Plus, GripVertical, Folder, FileText } from 'lucide-react';
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragStartEvent,
+  type DragEndEvent,
+  type DragMoveEvent,
+} from '@dnd-kit/core';
 import { Button } from '@/components/ui/button';
-import { projectApi, suiteApi, testApi, type Project, type SuiteNode, type TestSummary } from '@/lib/api';
+import {
+  projectApi,
+  suiteApi,
+  testApi,
+  type Project,
+  type SuiteNode,
+  type TestSummary,
+  type GroupedTestsResponse,
+  ApiError,
+} from '@/lib/api';
 import { useWorkspaceStore } from '@/stores/workspace';
-import { SuiteTree } from '@/components/project/SuiteTree';
-import { TestList } from '@/components/project/TestList';
+import { SuiteTree, handleSuiteDragEnd, type DropPosition } from '@/components/project/SuiteTree';
+import { TestTreeView } from '@/components/project/TestTreeView';
 import { CreateSuiteDialog } from '@/components/project/CreateSuiteDialog';
 import { CreateTestDialog } from '@/components/project/CreateTestDialog';
 import { ImportExportMenu } from '@/components/project/ImportExportMenu';
+import { useToast } from '@/hooks/use-toast';
 
 export function ProjectPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const { currentWorkspace } = useWorkspaceStore();
+  const { toast } = useToast();
 
   const [project, setProject] = useState<Project | null>(null);
   const [suites, setSuites] = useState<SuiteNode[]>([]);
-  const [tests, setTests] = useState<TestSummary[]>([]);
-  const [selectedSuiteId, setSelectedSuiteId] = useState<string | null>(null);
+  const [groupedTests, setGroupedTests] = useState<GroupedTestsResponse | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const [showCreateSuite, setShowCreateSuite] = useState(false);
   const [showCreateTest, setShowCreateTest] = useState(false);
+
+  // Sidebar navigation state
+  const [highlightedSuiteId, setHighlightedSuiteId] = useState<string | null>(null);
+  const [scrollToSuiteId, setScrollToSuiteId] = useState<string | null>(null);
+
+  // Shared DndContext state
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
+  const [activeDragType, setActiveDragType] = useState<string | null>(null);
+  const [activeDragData, setActiveDragData] = useState<unknown>(null);
+  const [sidebarDropPosition, setSidebarDropPosition] = useState<DropPosition>(null);
+  const [pointerY, setPointerY] = useState<number>(0);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    })
+  );
 
   // Fetch project details
   useEffect(() => {
@@ -46,80 +85,157 @@ export function ProjectPage() {
     fetchProject();
   }, [currentWorkspace, projectId]);
 
-  // Fetch suites
+  // Fetch suites and grouped tests
   useEffect(() => {
-    async function fetchSuites() {
+    async function fetchData() {
       if (!projectId) return;
 
       try {
-        const response = await suiteApi.getTree(projectId);
-        setSuites(response.data);
+        const [suitesRes, groupedRes] = await Promise.all([
+          suiteApi.getTree(projectId),
+          testApi.getGrouped(projectId),
+        ]);
+        setSuites(suitesRes.data);
+        setGroupedTests(groupedRes.data);
       } catch (err) {
-        console.error('Failed to load suites:', err);
+        console.error('Failed to load data:', err);
       }
     }
 
-    fetchSuites();
+    fetchData();
   }, [projectId]);
-
-  // Fetch tests (filtered by suite if selected)
-  useEffect(() => {
-    async function fetchTests() {
-      if (!projectId) return;
-
-      try {
-        const response = await testApi.list(projectId, {
-          suiteId: selectedSuiteId ?? undefined,
-        });
-        setTests(response.data);
-      } catch (err) {
-        console.error('Failed to load tests:', err);
-      }
-    }
-
-    fetchTests();
-  }, [projectId, selectedSuiteId]);
-
-  const handleSuiteCreated = (suite: SuiteNode) => {
-    // Add the new suite to the tree
-    if (suite.parentId) {
-      // Add as child of parent
-      setSuites(prev => addChildToTree(prev, suite.parentId!, suite));
-    } else {
-      // Add as root suite
-      setSuites(prev => [...prev, suite]);
-    }
-    setShowCreateSuite(false);
-  };
-
-  const handleTestCreated = (test: TestSummary) => {
-    setTests(prev => [test, ...prev]);
-    setShowCreateTest(false);
-  };
-
-  const refreshSuites = async () => {
-    if (!projectId) return;
-    try {
-      const response = await suiteApi.getTree(projectId);
-      setSuites(response.data);
-    } catch (err) {
-      console.error('Failed to refresh suites:', err);
-    }
-  };
 
   const refreshAll = useCallback(async () => {
     if (!projectId) return;
     try {
-      const [suitesRes, testsRes] = await Promise.all([
+      const [suitesRes, groupedRes] = await Promise.all([
         suiteApi.getTree(projectId),
-        testApi.list(projectId, { suiteId: selectedSuiteId ?? undefined }),
+        testApi.getGrouped(projectId),
       ]);
       setSuites(suitesRes.data);
-      setTests(testsRes.data);
+      setGroupedTests(groupedRes.data);
     } catch (err) {
       console.error('Failed to refresh data:', err);
     }
-  }, [projectId, selectedSuiteId]);
+  }, [projectId]);
+
+  const handleSuiteCreated = (_suite: SuiteNode) => {
+    setShowCreateSuite(false);
+    refreshAll();
+  };
+
+  const handleTestCreated = (_test: TestSummary) => {
+    setShowCreateTest(false);
+    refreshAll();
+  };
+
+  // Sidebar suite click: highlight + scroll to that section
+  const handleSelectSuite = (suiteId: string | null) => {
+    setHighlightedSuiteId(suiteId);
+    if (suiteId) {
+      setScrollToSuiteId(suiteId);
+    }
+  };
+
+  const handleScrollComplete = useCallback(() => {
+    setScrollToSuiteId(null);
+  }, []);
+
+  // ============ DndContext handlers ============
+
+  const handleDragStart = (event: DragStartEvent) => {
+    const type = event.active.data.current?.type as string;
+    setActiveDragType(type);
+    setActiveDragId(event.active.id as string);
+    setActiveDragData(event.active.data.current);
+  };
+
+  const handleDragMove = (event: DragMoveEvent) => {
+    if (event.activatorEvent instanceof PointerEvent) {
+      setPointerY(event.activatorEvent.clientY + (event.delta?.y || 0));
+    }
+  };
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+    const type = active.data.current?.type as string;
+    const currentDropPosition = sidebarDropPosition;
+
+    // Reset drag state
+    setActiveDragId(null);
+    setActiveDragType(null);
+    setActiveDragData(null);
+    setSidebarDropPosition(null);
+
+    if (!over) return;
+
+    if (type === 'suite') {
+      // Suite reorder in sidebar
+      const suiteId = (active.id as string).replace('suite-', '');
+      try {
+        const result = await handleSuiteDragEnd(
+          suiteId,
+          currentDropPosition,
+          suites,
+          projectId!,
+          refreshAll,
+          () => {}, // expandSuite handled inside SuiteTree's own state
+        );
+        if (result.error) {
+          toast({
+            title: 'Cannot move',
+            description: result.error,
+            variant: 'destructive',
+          });
+        }
+      } catch (err) {
+        const message = err instanceof ApiError ? err.message : 'Failed to move suite';
+        toast({
+          title: 'Error',
+          description: message,
+          variant: 'destructive',
+        });
+      }
+    } else if (type === 'test') {
+      // Test move to suite
+      const testId = (active.id as string).replace('test-', '');
+      const overData = over.data.current;
+
+      // Determine target suite ID
+      let targetSuiteId: string | null = null;
+      const overId = over.id as string;
+
+      if (overData?.type === 'suite-drop-zone' || overData?.type === 'sidebar-suite') {
+        targetSuiteId = overData.suiteId ?? null;
+      } else if (overId.startsWith('main-')) {
+        const id = overId.replace('main-', '');
+        targetSuiteId = id === 'unassigned' ? null : id;
+      } else if (overId.startsWith('sidebar-')) {
+        targetSuiteId = overId.replace('sidebar-', '');
+      }
+
+      try {
+        await testApi.moveToSuite(projectId!, testId, { targetSuiteId });
+        refreshAll();
+      } catch (err) {
+        const message = err instanceof ApiError ? err.message : 'Failed to move test';
+        toast({
+          title: 'Error',
+          description: message,
+          variant: 'destructive',
+        });
+      }
+    }
+  };
+
+  const handleDragCancel = () => {
+    setActiveDragId(null);
+    setActiveDragType(null);
+    setActiveDragData(null);
+    setSidebarDropPosition(null);
+  };
+
+  // ============ Render ============
 
   if (!currentWorkspace) {
     return (
@@ -144,6 +260,39 @@ export function ProjectPage() {
       </div>
     );
   }
+
+  // Build drag overlay content
+  const dragOverlay = (() => {
+    if (!activeDragData) return null;
+    const data = activeDragData as Record<string, unknown>;
+
+    if (activeDragType === 'suite') {
+      const suite = data.suite as SuiteNode;
+      return (
+        <div className="flex items-center gap-1 px-2 py-1.5 rounded-md text-sm bg-background border-2 border-primary shadow-lg">
+          <GripVertical className="h-4 w-4 text-muted-foreground" />
+          <Folder className="h-4 w-4 flex-shrink-0 text-primary" />
+          <span className="truncate font-medium">{suite.name}</span>
+        </div>
+      );
+    }
+
+    if (activeDragType === 'test') {
+      const test = data.test as TestSummary;
+      return (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-md text-sm bg-background border-2 border-primary shadow-lg max-w-md">
+          <GripVertical className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+          <FileText className="h-4 w-4 flex-shrink-0 text-primary" />
+          <span className="text-xs font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded flex-shrink-0">
+            {test.code}
+          </span>
+          <span className="truncate font-medium">{test.title}</span>
+        </div>
+      );
+    }
+
+    return null;
+  })();
 
   return (
     <div className="h-full flex flex-col">
@@ -180,72 +329,74 @@ export function ProjectPage() {
         </div>
       </div>
 
-      {/* Main content */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Suite tree sidebar */}
-        <div className="w-64 border-r bg-muted/30 overflow-y-auto">
-          <div className="p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-medium text-muted-foreground">Suites</h2>
+      {/* Main content with shared DndContext */}
+      <DndContext
+        sensors={sensors}
+        onDragStart={handleDragStart}
+        onDragMove={handleDragMove}
+        onDragEnd={handleDragEnd}
+        onDragCancel={handleDragCancel}
+      >
+        <div className="flex-1 flex overflow-hidden">
+          {/* Suite tree sidebar */}
+          <div className="w-64 border-r bg-muted/30 overflow-y-auto">
+            <div className="p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-sm font-medium text-muted-foreground">Suites</h2>
+              </div>
+              <SuiteTree
+                suites={suites}
+                highlightedSuiteId={highlightedSuiteId}
+                onSelectSuite={handleSelectSuite}
+                onSuiteUpdated={refreshAll}
+                projectId={projectId!}
+                activeId={activeDragType === 'suite' ? activeDragId : null}
+                dropPosition={sidebarDropPosition}
+                pointerY={pointerY}
+                onDropPositionChange={setSidebarDropPosition}
+              />
             </div>
-            <SuiteTree
-              suites={suites}
-              selectedSuiteId={selectedSuiteId}
-              onSelectSuite={setSelectedSuiteId}
-              onSuiteUpdated={refreshSuites}
-              projectId={projectId!}
-            />
+          </div>
+
+          {/* Test tree view */}
+          <div className="flex-1 overflow-hidden">
+            {groupedTests ? (
+              <TestTreeView
+                projectId={projectId!}
+                suites={suites}
+                groupedTests={groupedTests}
+                scrollToSuiteId={scrollToSuiteId}
+                onScrollComplete={handleScrollComplete}
+                activeDragType={activeDragType}
+              />
+            ) : (
+              <div className="flex items-center justify-center h-64">
+                <p className="text-muted-foreground">Loading tests...</p>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Test list */}
-        <div className="flex-1 overflow-y-auto">
-          <div className="p-6">
-            <TestList
-              tests={tests}
-              selectedSuiteId={selectedSuiteId}
-              suites={suites}
-              onSelectSuite={setSelectedSuiteId}
-              projectId={projectId!}
-            />
-          </div>
-        </div>
-      </div>
+        <DragOverlay dropAnimation={null}>
+          {dragOverlay}
+        </DragOverlay>
+      </DndContext>
 
       {/* Dialogs */}
       <CreateSuiteDialog
         open={showCreateSuite}
         onOpenChange={setShowCreateSuite}
         projectId={projectId!}
-        parentId={selectedSuiteId}
+        parentId={highlightedSuiteId}
         onCreated={handleSuiteCreated}
       />
       <CreateTestDialog
         open={showCreateTest}
         onOpenChange={setShowCreateTest}
         projectId={projectId!}
-        suiteId={selectedSuiteId}
+        suiteId={highlightedSuiteId}
         onCreated={handleTestCreated}
       />
     </div>
   );
-}
-
-// Helper to add a child suite to the tree
-function addChildToTree(tree: SuiteNode[], parentId: string, newSuite: SuiteNode): SuiteNode[] {
-  return tree.map(node => {
-    if (node.id === parentId) {
-      return {
-        ...node,
-        children: [...(node.children || []), newSuite],
-      };
-    }
-    if (node.children && node.children.length > 0) {
-      return {
-        ...node,
-        children: addChildToTree(node.children, parentId, newSuite),
-      };
-    }
-    return node;
-  });
 }

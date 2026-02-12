@@ -1,31 +1,26 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import {
-  DndContext,
-  DragOverlay,
-  PointerSensor,
-  useSensor,
-  useSensors,
   useDraggable,
   useDroppable,
-  type DragStartEvent,
-  type DragEndEvent,
-  type DragMoveEvent,
 } from '@dnd-kit/core';
 import { ChevronRight, Folder, FolderOpen, GripVertical } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { suiteApi, type SuiteNode, ApiError } from '@/lib/api';
-import { useToast } from '@/hooks/use-toast';
+import { suiteApi, type SuiteNode } from '@/lib/api';
 
 interface SuiteTreeProps {
   suites: SuiteNode[];
-  selectedSuiteId: string | null;
+  highlightedSuiteId: string | null;
   onSelectSuite: (suiteId: string | null) => void;
   onSuiteUpdated: () => void;
   projectId: string;
+  activeId: string | null;
+  dropPosition: DropPosition;
+  pointerY: number;
+  onDropPositionChange: (position: DropPosition) => void;
 }
 
 // Drop position: before, after, or inside a suite
-type DropPosition = {
+export type DropPosition = {
   targetId: string;
   position: 'before' | 'after' | 'inside';
 } | null;
@@ -35,24 +30,14 @@ const HOVER_INSIDE_DELAY = 1500;
 
 export function SuiteTree({
   suites,
-  selectedSuiteId,
+  highlightedSuiteId,
   onSelectSuite,
-  onSuiteUpdated,
-  projectId,
+  activeId,
+  dropPosition,
+  pointerY,
+  onDropPositionChange,
 }: SuiteTreeProps) {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
-  const [activeId, setActiveId] = useState<string | null>(null);
-  const [dropPosition, setDropPosition] = useState<DropPosition>(null);
-  const [pointerY, setPointerY] = useState<number>(0);
-  const { toast } = useToast();
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: {
-        distance: 8,
-      },
-    })
-  );
 
   const toggleExpanded = (suiteId: string) => {
     setExpandedIds(prev => {
@@ -66,104 +51,6 @@ export function SuiteTree({
     });
   };
 
-  const handleDragStart = (event: DragStartEvent) => {
-    setActiveId(event.active.id as string);
-  };
-
-  const handleDragMove = (event: DragMoveEvent) => {
-    // Track current pointer position
-    if (event.activatorEvent instanceof PointerEvent) {
-      setPointerY(event.activatorEvent.clientY + (event.delta?.y || 0));
-    }
-  };
-
-  const handleDragOver = () => {
-    // Drop position is calculated in SuiteTreeNode based on pointerY
-  };
-
-  const handleDragEnd = async (event: DragEndEvent) => {
-    const { active } = event;
-    const currentDropPosition = dropPosition;
-
-    setActiveId(null);
-    setDropPosition(null);
-
-    if (!currentDropPosition || active.id === currentDropPosition.targetId) {
-      return;
-    }
-
-    const activeNode = findSuiteInTree(suites, active.id as string);
-    const targetNode = findSuiteInTree(suites, currentDropPosition.targetId);
-
-    if (!activeNode || !targetNode) {
-      return;
-    }
-
-    // Prevent dropping a node inside itself or its descendants
-    if (currentDropPosition.position === 'inside') {
-      if (isDescendantOf(suites, targetNode.id, activeNode.id)) {
-        toast({
-          title: 'Cannot move',
-          description: 'Cannot move a suite inside itself or its children.',
-          variant: 'destructive',
-        });
-        return;
-      }
-    }
-
-    try {
-      let newParentId: string | null;
-      let afterSuiteId: string | undefined;
-
-      if (currentDropPosition.position === 'inside') {
-        // Drop inside the target - make it a child of target
-        newParentId = targetNode.id;
-        // Insert at the end of target's children
-        const targetChildren = targetNode.children || [];
-        if (targetChildren.length > 0) {
-          afterSuiteId = targetChildren[targetChildren.length - 1].id;
-        }
-        // Expand the target so user can see the moved item
-        setExpandedIds(prev => new Set([...prev, targetNode.id]));
-      } else if (currentDropPosition.position === 'before') {
-        // Insert before target - same parent as target
-        newParentId = targetNode.parentId;
-        const siblings = getSiblingsInOrder(suites, targetNode.parentId);
-        // Filter out the active node to get correct index
-        const filteredSiblings = siblings.filter(s => s.id !== activeNode.id);
-        const targetIndex = filteredSiblings.findIndex(s => s.id === targetNode.id);
-        if (targetIndex > 0) {
-          afterSuiteId = filteredSiblings[targetIndex - 1].id;
-        }
-        // If targetIndex is 0 or -1, afterSuiteId stays undefined (insert at beginning)
-      } else {
-        // Insert after target - same parent as target
-        newParentId = targetNode.parentId;
-        afterSuiteId = targetNode.id;
-      }
-
-      await suiteApi.move(projectId, active.id as string, {
-        parentId: newParentId,
-        afterSuiteId,
-      });
-      onSuiteUpdated();
-    } catch (err) {
-      const message = err instanceof ApiError ? err.message : 'Failed to move suite';
-      toast({
-        title: 'Error',
-        description: message,
-        variant: 'destructive',
-      });
-    }
-  };
-
-  const handleDragCancel = () => {
-    setActiveId(null);
-    setDropPosition(null);
-  };
-
-  const activeSuite = activeId ? findSuiteInTree(suites, activeId) : null;
-
   if (suites.length === 0) {
     return (
       <div className="text-center py-8 text-muted-foreground text-sm">
@@ -175,66 +62,108 @@ export function SuiteTree({
   }
 
   return (
-    <DndContext
-      sensors={sensors}
-      onDragStart={handleDragStart}
-      onDragMove={handleDragMove}
-      onDragOver={handleDragOver}
-      onDragEnd={handleDragEnd}
-      onDragCancel={handleDragCancel}
-    >
-      <div className="space-y-0.5">
-        {/* "All Tests" option */}
-        <button
-          onClick={() => onSelectSuite(null)}
-          className={cn(
-            'w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors text-left',
-            selectedSuiteId === null
-              ? 'bg-primary text-primary-foreground'
-              : 'hover:bg-accent text-muted-foreground hover:text-foreground'
-          )}
-        >
-          <Folder className="h-4 w-4 flex-shrink-0" />
-          <span className="flex-1 truncate">All Tests</span>
-        </button>
-
-        {/* Suite tree */}
-        {suites.map((suite, index) => (
-          <SuiteTreeNode
-            key={suite.id}
-            suite={suite}
-            level={0}
-            expandedIds={expandedIds}
-            selectedSuiteId={selectedSuiteId}
-            activeId={activeId}
-            dropPosition={dropPosition}
-            pointerY={pointerY}
-            isLastInGroup={index === suites.length - 1}
-            onToggle={toggleExpanded}
-            onSelect={onSelectSuite}
-            onDropPositionChange={setDropPosition}
-          />
-        ))}
-      </div>
-
-      <DragOverlay dropAnimation={null}>
-        {activeSuite && (
-          <div className="flex items-center gap-1 px-2 py-1.5 rounded-md text-sm bg-background border-2 border-primary shadow-lg">
-            <GripVertical className="h-4 w-4 text-muted-foreground" />
-            <Folder className="h-4 w-4 flex-shrink-0 text-primary" />
-            <span className="truncate font-medium">{activeSuite.name}</span>
-          </div>
+    <div className="space-y-0.5">
+      {/* "All Tests" option */}
+      <button
+        onClick={() => onSelectSuite(null)}
+        className={cn(
+          'w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors text-left',
+          highlightedSuiteId === null
+            ? 'bg-primary text-primary-foreground'
+            : 'hover:bg-accent text-muted-foreground hover:text-foreground'
         )}
-      </DragOverlay>
-    </DndContext>
+      >
+        <Folder className="h-4 w-4 flex-shrink-0" />
+        <span className="flex-1 truncate">All Tests</span>
+      </button>
+
+      {/* Suite tree */}
+      {suites.map((suite, index) => (
+        <SuiteTreeNode
+          key={suite.id}
+          suite={suite}
+          level={0}
+          expandedIds={expandedIds}
+          highlightedSuiteId={highlightedSuiteId}
+          activeId={activeId}
+          dropPosition={dropPosition}
+          pointerY={pointerY}
+          isLastInGroup={index === suites.length - 1}
+          onToggle={toggleExpanded}
+          onSelect={onSelectSuite}
+          onDropPositionChange={onDropPositionChange}
+        />
+      ))}
+    </div>
   );
 }
+
+// ============ Suite reorder logic (called by parent DndContext) ============
+
+export async function handleSuiteDragEnd(
+  activeId: string,
+  dropPosition: DropPosition,
+  suites: SuiteNode[],
+  projectId: string,
+  onSuiteUpdated: () => void,
+  expandSuite: (suiteId: string) => void,
+): Promise<{ error?: string }> {
+  if (!dropPosition || activeId === dropPosition.targetId) {
+    return {};
+  }
+
+  const activeNode = findSuiteInTree(suites, activeId);
+  const targetNode = findSuiteInTree(suites, dropPosition.targetId);
+
+  if (!activeNode || !targetNode) {
+    return {};
+  }
+
+  // Prevent dropping a node inside itself or its descendants
+  if (dropPosition.position === 'inside') {
+    if (isDescendantOf(suites, targetNode.id, activeNode.id)) {
+      return { error: 'Cannot move a suite inside itself or its children.' };
+    }
+  }
+
+  let newParentId: string | null;
+  let afterSuiteId: string | undefined;
+
+  if (dropPosition.position === 'inside') {
+    newParentId = targetNode.id;
+    const targetChildren = targetNode.children || [];
+    if (targetChildren.length > 0) {
+      afterSuiteId = targetChildren[targetChildren.length - 1].id;
+    }
+    expandSuite(targetNode.id);
+  } else if (dropPosition.position === 'before') {
+    newParentId = targetNode.parentId;
+    const siblings = getSiblingsInOrder(suites, targetNode.parentId);
+    const filteredSiblings = siblings.filter(s => s.id !== activeNode.id);
+    const targetIndex = filteredSiblings.findIndex(s => s.id === targetNode.id);
+    if (targetIndex > 0) {
+      afterSuiteId = filteredSiblings[targetIndex - 1].id;
+    }
+  } else {
+    newParentId = targetNode.parentId;
+    afterSuiteId = targetNode.id;
+  }
+
+  await suiteApi.move(projectId, activeId, {
+    parentId: newParentId,
+    afterSuiteId,
+  });
+  onSuiteUpdated();
+  return {};
+}
+
+// ============ SuiteTreeNode ============
 
 interface SuiteTreeNodeProps {
   suite: SuiteNode;
   level: number;
   expandedIds: Set<string>;
-  selectedSuiteId: string | null;
+  highlightedSuiteId: string | null;
   activeId: string | null;
   dropPosition: DropPosition;
   pointerY: number;
@@ -248,7 +177,7 @@ function SuiteTreeNode({
   suite,
   level,
   expandedIds,
-  selectedSuiteId,
+  highlightedSuiteId,
   activeId,
   dropPosition,
   pointerY,
@@ -263,7 +192,7 @@ function SuiteTreeNode({
 
   const hasChildren = suite.children && suite.children.length > 0;
   const isExpanded = expandedIds.has(suite.id);
-  const isSelected = selectedSuiteId === suite.id;
+  const isSelected = highlightedSuiteId === suite.id;
   const isDragging = activeId === suite.id;
 
   const showDropBefore = dropPosition?.targetId === suite.id && dropPosition.position === 'before';
@@ -271,22 +200,22 @@ function SuiteTreeNode({
   const showDropInside = dropPosition?.targetId === suite.id && dropPosition.position === 'inside';
 
   const { attributes, listeners, setNodeRef: setDragRef } = useDraggable({
-    id: suite.id,
+    id: `suite-${suite.id}`,
+    data: { type: 'suite', suite },
   });
 
   const { setNodeRef: setDropRef, isOver } = useDroppable({
-    id: suite.id,
+    id: `sidebar-${suite.id}`,
+    data: { type: 'sidebar-suite', suiteId: suite.id },
   });
 
   // Start/reset hover timer for "inside" mode
   useEffect(() => {
     if (isOver && !isDragging) {
-      // Start timer for "inside" mode
       hoverTimerRef.current = setTimeout(() => {
         setIsHoverDelayMet(true);
       }, HOVER_INSIDE_DELAY);
     } else {
-      // Clear timer and reset
       if (hoverTimerRef.current) {
         clearTimeout(hoverTimerRef.current);
         hoverTimerRef.current = null;
@@ -307,13 +236,11 @@ function SuiteTreeNode({
 
     const rect = nodeRef.current.getBoundingClientRect();
 
-    // If hover delay is met, switch to "inside" mode
     if (isHoverDelayMet) {
       onDropPositionChange({ targetId: suite.id, position: 'inside' });
       return;
     }
 
-    // Otherwise, calculate before/after based on pointer position
     const middleY = rect.top + rect.height / 2;
     const position = pointerY < middleY ? 'before' : 'after';
     onDropPositionChange({ targetId: suite.id, position });
@@ -323,7 +250,6 @@ function SuiteTreeNode({
     calculateDropPosition();
   }, [calculateDropPosition]);
 
-  // Clear drop position when not over
   useEffect(() => {
     if (!isOver && dropPosition?.targetId === suite.id) {
       // Don't clear if we're over a child
@@ -363,7 +289,6 @@ function SuiteTreeNode({
             ? 'bg-primary text-primary-foreground'
             : 'hover:bg-accent text-foreground',
           isDragging && 'opacity-30',
-          // Only show highlight ring when in "inside" mode (after hover delay)
           showDropInside && 'ring-2 ring-primary bg-primary/10'
         )}
         style={{ paddingLeft: `${level * 12 + 8}px` }}
@@ -437,7 +362,7 @@ function SuiteTreeNode({
               suite={child}
               level={level + 1}
               expandedIds={expandedIds}
-              selectedSuiteId={selectedSuiteId}
+              highlightedSuiteId={highlightedSuiteId}
               activeId={activeId}
               dropPosition={dropPosition}
               pointerY={pointerY}
@@ -450,7 +375,7 @@ function SuiteTreeNode({
         </div>
       )}
 
-      {/* Drop indicator - after (only show for last item in group or items without expanded children) */}
+      {/* Drop indicator - after */}
       {showDropAfter && (isLastInGroup || !hasChildren || !isExpanded) && (
         <div
           className="absolute left-0 right-0 z-10 pointer-events-none"
@@ -469,8 +394,9 @@ function SuiteTreeNode({
   );
 }
 
-// Helper to find a suite in the tree
-function findSuiteInTree(suites: SuiteNode[], id: string): SuiteNode | null {
+// ============ Helpers (exported for parent use) ============
+
+export function findSuiteInTree(suites: SuiteNode[], id: string): SuiteNode | null {
   for (const suite of suites) {
     if (suite.id === id) {
       return suite;
@@ -483,7 +409,6 @@ function findSuiteInTree(suites: SuiteNode[], id: string): SuiteNode | null {
   return null;
 }
 
-// Helper to get siblings of a node in order
 function getSiblingsInOrder(suites: SuiteNode[], parentId: string | null): SuiteNode[] {
   if (parentId === null) {
     return suites;
@@ -493,7 +418,6 @@ function getSiblingsInOrder(suites: SuiteNode[], parentId: string | null): Suite
   return parent?.children || [];
 }
 
-// Helper to check if targetId is a descendant of ancestorId
 function isDescendantOf(suites: SuiteNode[], targetId: string, ancestorId: string): boolean {
   const ancestor = findSuiteInTree(suites, ancestorId);
   if (!ancestor || !ancestor.children) return false;

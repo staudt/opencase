@@ -299,6 +299,11 @@ export interface TestDiff {
   changes: DiffChange[];
 }
 
+export interface GroupedTestsResponse {
+  suites: Array<{ suiteId: string; tests: TestSummary[] }>;
+  unassigned: TestSummary[];
+}
+
 export interface PaginatedResponse<T> {
   data: T[];
   pagination: {
@@ -345,6 +350,14 @@ export const testApi = {
 
   async diff(projectId: string, testId: string, v1: number, v2: number) {
     return api.get<{ data: TestDiff }>(`/projects/${projectId}/tests/${testId}/diff?v1=${v1}&v2=${v2}`);
+  },
+
+  async getGrouped(projectId: string) {
+    return api.get<{ data: GroupedTestsResponse }>(`/projects/${projectId}/tests/grouped`);
+  },
+
+  async moveToSuite(projectId: string, testId: string, data: { targetSuiteId: string | null; afterTestId?: string }) {
+    return api.post<{ data: TestSummary }>(`/projects/${projectId}/tests/${testId}/move`, data);
   },
 };
 

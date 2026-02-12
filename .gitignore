@@ -50,3 +50,4 @@ uploads/
 # Generated files
 packages/api-client/src/generated/
 apps/api/openapi.json
+nul

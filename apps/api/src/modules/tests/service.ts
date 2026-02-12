@@ -37,6 +37,11 @@ export const listTestsSchema = z.object({
   limit: z.coerce.number().min(1).max(100).default(50),
 });
 
+export const moveTestSchema = z.object({
+  targetSuiteId: z.string().nullable(),
+  afterTestId: z.string().optional(),
+});
+
 export const bulkCreateTestsSchema = z.object({
   tests: z.array(createTestSchema).min(1).max(100),
 });
@@ -52,6 +57,7 @@ export const bulkDeleteTestsSchema = z.object({
 export type CreateTestInput = z.infer<typeof createTestSchema>;
 export type UpdateTestInput = z.infer<typeof updateTestSchema>;
 export type ListTestsOptions = z.infer<typeof listTestsSchema>;
+export type MoveTestInput = z.infer<typeof moveTestSchema>;
 export type BulkCreateTestsInput = z.infer<typeof bulkCreateTestsSchema>;
 export type BulkUpdateTestsInput = z.infer<typeof bulkUpdateTestsSchema>;
 export type BulkDeleteTestsInput = z.infer<typeof bulkDeleteTestsSchema>;
@@ -1010,6 +1016,204 @@ export const testService = {
     }
 
     return { succeeded, failed };
+  },
+
+  /**
+   * Get all tests grouped by suite
+   */
+  async getGroupedTests(
+    prisma: PrismaClient,
+    projectId: string,
+    userId: string
+  ): Promise<{ data: { suites: Array<{ suiteId: string; tests: TestSummary[] }>; unassigned: TestSummary[] } } | null> {
+    // Verify access to project
+    const project = await prisma.project.findUnique({
+      where: { id: projectId },
+      include: {
+        workspace: {
+          include: {
+            members: { where: { userId } },
+          },
+        },
+      },
+    });
+
+    if (!project || project.workspace.members.length === 0) {
+      return null;
+    }
+
+    // Fetch all tests with their suite associations
+    const tests = await prisma.test.findMany({
+      where: { projectId },
+      orderBy: { code: 'asc' },
+      include: {
+        currentVersion: {
+          include: {
+            createdBy: {
+              select: { id: true, email: true, name: true, avatarUrl: true },
+            },
+          },
+        },
+        tags: {
+          include: { tag: true },
+        },
+        suiteItems: {
+          select: { suiteNodeId: true, orderKey: true },
+          orderBy: { orderKey: 'asc' },
+        },
+      },
+    });
+
+    // Group tests by suite
+    const suiteMap = new Map<string, Array<{ test: typeof tests[0]; orderKey: string }>>();
+    const unassigned: TestSummary[] = [];
+
+    for (const test of tests) {
+      const summary: TestSummary = {
+        id: test.id,
+        projectId: test.projectId,
+        code: test.code,
+        title: test.currentVersion?.title ?? '',
+        tags: test.tags.map((tt) => ({
+          id: tt.tag.id,
+          projectId: tt.tag.projectId,
+          name: tt.tag.name,
+          color: tt.tag.color,
+          createdAt: tt.tag.createdAt.toISOString(),
+        })),
+        createdAt: test.createdAt.toISOString(),
+        updatedAt: test.updatedAt.toISOString(),
+      };
+
+      if (test.suiteItems.length === 0) {
+        unassigned.push(summary);
+      } else {
+        // A test could theoretically be in multiple suites, but we use the first one
+        const suiteItem = test.suiteItems[0];
+        if (!suiteMap.has(suiteItem.suiteNodeId)) {
+          suiteMap.set(suiteItem.suiteNodeId, []);
+        }
+        suiteMap.get(suiteItem.suiteNodeId)!.push({ test, orderKey: suiteItem.orderKey });
+      }
+    }
+
+    // Build suite groups, ordered by suite item orderKey
+    const suites: Array<{ suiteId: string; tests: TestSummary[] }> = [];
+    for (const [suiteId, items] of suiteMap) {
+      items.sort((a, b) => a.orderKey.localeCompare(b.orderKey));
+      suites.push({
+        suiteId,
+        tests: items.map((item) => ({
+          id: item.test.id,
+          projectId: item.test.projectId,
+          code: item.test.code,
+          title: item.test.currentVersion?.title ?? '',
+          tags: item.test.tags.map((tt) => ({
+            id: tt.tag.id,
+            projectId: tt.tag.projectId,
+            name: tt.tag.name,
+            color: tt.tag.color,
+            createdAt: tt.tag.createdAt.toISOString(),
+          })),
+          createdAt: item.test.createdAt.toISOString(),
+          updatedAt: item.test.updatedAt.toISOString(),
+        })),
+      });
+    }
+
+    return { data: { suites, unassigned } };
+  },
+
+  /**
+   * Move a test to a different suite (or unassign from all suites)
+   */
+  async moveTestToSuite(
+    prisma: PrismaClient,
+    projectId: string,
+    testId: string,
+    userId: string,
+    input: MoveTestInput
+  ): Promise<{ data: TestSummary } | { error: string; message: string }> {
+    // Verify access to project
+    const project = await prisma.project.findUnique({
+      where: { id: projectId },
+      include: {
+        workspace: {
+          include: {
+            members: { where: { userId } },
+          },
+        },
+      },
+    });
+
+    if (!project || project.workspace.members.length === 0) {
+      return { error: 'NOT_FOUND', message: 'Project not found' };
+    }
+
+    // Verify test exists
+    const test = await prisma.test.findFirst({
+      where: { id: testId, projectId },
+      include: {
+        currentVersion: true,
+        tags: { include: { tag: true } },
+      },
+    });
+
+    if (!test) {
+      return { error: 'NOT_FOUND', message: 'Test not found' };
+    }
+
+    // Verify target suite exists if provided
+    if (input.targetSuiteId) {
+      const suite = await prisma.suiteNode.findFirst({
+        where: { id: input.targetSuiteId, projectId },
+      });
+      if (!suite) {
+        return { error: 'NOT_FOUND', message: 'Target suite not found' };
+      }
+    }
+
+    // Move in transaction
+    await prisma.$transaction(async (tx) => {
+      // Remove all existing suite associations
+      await tx.suiteItem.deleteMany({
+        where: { testId },
+      });
+
+      // Create new association if target suite provided
+      if (input.targetSuiteId) {
+        const orderKey = await calculateSuiteItemOrderKey(
+          tx as PrismaClient,
+          input.targetSuiteId,
+          input.afterTestId
+        );
+        await tx.suiteItem.create({
+          data: {
+            suiteNodeId: input.targetSuiteId,
+            testId,
+            orderKey,
+          },
+        });
+      }
+    });
+
+    const summary: TestSummary = {
+      id: test.id,
+      projectId: test.projectId,
+      code: test.code,
+      title: test.currentVersion?.title ?? '',
+      tags: test.tags.map((tt) => ({
+        id: tt.tag.id,
+        projectId: tt.tag.projectId,
+        name: tt.tag.name,
+        color: tt.tag.color,
+        createdAt: tt.tag.createdAt.toISOString(),
+      })),
+      createdAt: test.createdAt.toISOString(),
+      updatedAt: test.updatedAt.toISOString(),
+    };
+
+    return { data: summary };
   },
 };
 

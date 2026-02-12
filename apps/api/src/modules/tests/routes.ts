@@ -4,6 +4,7 @@ import {
   createTestSchema,
   updateTestSchema,
   listTestsSchema,
+  moveTestSchema,
   bulkCreateTestsSchema,
   bulkUpdateTestsSchema,
   bulkDeleteTestsSchema,
@@ -27,6 +28,29 @@ export const testRoutes: FastifyPluginAsync = async (fastify) => {
       request.params.projectId,
       request.user.id,
       options
+    );
+
+    if (result === null) {
+      return reply.status(404).send({
+        error: { code: 'NOT_FOUND', message: 'Project not found' },
+      });
+    }
+
+    return reply.send(result);
+  });
+
+  // Get all tests grouped by suite
+  fastify.get<{ Params: { projectId: string } }>('/grouped', async (request, reply) => {
+    if (!request.user) {
+      return reply.status(401).send({
+        error: { code: 'UNAUTHORIZED', message: 'Authentication required' },
+      });
+    }
+
+    const result = await testService.getGroupedTests(
+      fastify.prisma,
+      request.params.projectId,
+      request.user.id
     );
 
     if (result === null) {
@@ -211,6 +235,36 @@ export const testRoutes: FastifyPluginAsync = async (fastify) => {
         request.params.projectId,
         request.params.testId,
         request.user.id
+      );
+
+      if ('error' in result) {
+        const status = result.error === 'NOT_FOUND' ? 404 : 400;
+        return reply.status(status).send({
+          error: { code: result.error, message: result.message },
+        });
+      }
+
+      return reply.send(result);
+    }
+  );
+
+  // Move test to a different suite
+  fastify.post<{ Params: { projectId: string; testId: string } }>(
+    '/:testId/move',
+    async (request, reply) => {
+      if (!request.user) {
+        return reply.status(401).send({
+          error: { code: 'UNAUTHORIZED', message: 'Authentication required' },
+        });
+      }
+
+      const body = moveTestSchema.parse(request.body);
+      const result = await testService.moveTestToSuite(
+        fastify.prisma,
+        request.params.projectId,
+        request.params.testId,
+        request.user.id,
+        body
       );
 
       if ('error' in result) {
