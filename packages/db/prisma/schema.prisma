@@ -1,0 +1,308 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============ AUTH & USERS ============
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  name         String
+  avatarUrl    String?  @map("avatar_url")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  sessions     Session[]
+  memberships  WorkspaceMember[]
+  testVersions TestVersion[]     @relation("CreatedBy")
+  runs         Run[]             @relation("CreatedBy")
+  results      Result[]          @relation("RecordedBy")
+  auditLogs    AuditLog[]
+
+  @@map("users")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  token     String   @unique
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([userId])
+  @@map("sessions")
+}
+
+// ============ WORKSPACE & PROJECT ============
+
+model Workspace {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  members  WorkspaceMember[]
+  projects Project[]
+
+  @@map("workspaces")
+}
+
+model WorkspaceMember {
+  id          String   @id @default(cuid())
+  workspaceId String   @map("workspace_id")
+  userId      String   @map("user_id")
+  role        String   @default("member") // owner, admin, member
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@map("workspace_members")
+}
+
+model Project {
+  id          String   @id @default(cuid())
+  workspaceId String   @map("workspace_id")
+  name        String
+  slug        String
+  description String?
+  testCounter Int      @default(0) @map("test_counter") // For generating TC-XXX codes
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  workspace  Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  suiteNodes SuiteNode[]
+  tests      Test[]
+  tags       Tag[]
+  runs       Run[]
+  auditLogs  AuditLog[]
+  webhooks   Webhook[]
+
+  @@unique([workspaceId, slug])
+  @@map("projects")
+}
+
+// ============ SUITE TREE ============
+
+model SuiteNode {
+  id        String   @id @default(cuid())
+  projectId String   @map("project_id")
+  parentId  String?  @map("parent_id")
+  name      String
+  orderKey  String   @map("order_key") // LexoRank for fractional ordering
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  project  Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parent   SuiteNode?  @relation("SuiteTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children SuiteNode[] @relation("SuiteTree")
+  items    SuiteItem[]
+
+  @@index([projectId, parentId, orderKey])
+  @@map("suite_nodes")
+}
+
+model SuiteItem {
+  id          String   @id @default(cuid())
+  suiteNodeId String   @map("suite_node_id")
+  testId      String   @map("test_id")
+  orderKey    String   @map("order_key") // LexoRank for ordering within suite
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  suiteNode SuiteNode @relation(fields: [suiteNodeId], references: [id], onDelete: Cascade)
+  test      Test      @relation(fields: [testId], references: [id], onDelete: Cascade)
+
+  @@unique([suiteNodeId, testId])
+  @@index([suiteNodeId, orderKey])
+  @@map("suite_items")
+}
+
+// ============ TESTS & VERSIONS ============
+
+model Test {
+  id               String   @id @default(cuid())
+  projectId        String   @map("project_id")
+  code             String   // Human-readable identifier like "TC-123"
+  currentVersionId String?  @unique @map("current_version_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  project        Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  currentVersion TestVersion?  @relation("CurrentVersion", fields: [currentVersionId], references: [id])
+  versions       TestVersion[] @relation("TestVersions")
+  suiteItems     SuiteItem[]
+  tags           TestTag[]
+
+  @@unique([projectId, code])
+  @@index([projectId])
+  @@map("tests")
+}
+
+model TestVersion {
+  id          String   @id @default(cuid())
+  testId      String   @map("test_id")
+  version     Int      // Sequential version number
+  title       String
+  content     Json     // Block-based content structure
+  contentHash String   @map("content_hash") // SHA256 of deterministically serialized content
+  source      String   @default("human") // human, ai, import
+  createdById String   @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  test        Test         @relation("TestVersions", fields: [testId], references: [id], onDelete: Cascade)
+  createdBy   User         @relation("CreatedBy", fields: [createdById], references: [id])
+  currentFor  Test?        @relation("CurrentVersion")
+  runItems    RunItem[]
+  attachments Attachment[]
+
+  @@unique([testId, version])
+  @@index([testId, createdAt])
+  @@map("test_versions")
+}
+
+// ============ TAGS ============
+
+model Tag {
+  id        String   @id @default(cuid())
+  projectId String   @map("project_id")
+  name      String
+  color     String   @default("#6366f1")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  project Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tests   TestTag[]
+
+  @@unique([projectId, name])
+  @@map("tags")
+}
+
+model TestTag {
+  testId String @map("test_id")
+  tagId  String @map("tag_id")
+
+  test Test @relation(fields: [testId], references: [id], onDelete: Cascade)
+  tag  Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([testId, tagId])
+  @@map("test_tags")
+}
+
+// ============ ATTACHMENTS ============
+
+model Attachment {
+  id           String   @id @default(cuid())
+  filename     String
+  contentType  String   @map("content_type")
+  size         Int
+  storageKey   String   @map("storage_key") // Path in storage (local/S3)
+  uploadedById String?  @map("uploaded_by_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  // Polymorphic: can be attached to TestVersion or Result
+  testVersionId String? @map("test_version_id")
+  resultId      String? @map("result_id")
+
+  testVersion TestVersion? @relation(fields: [testVersionId], references: [id], onDelete: Cascade)
+  result      Result?      @relation(fields: [resultId], references: [id], onDelete: Cascade)
+
+  @@map("attachments")
+}
+
+// ============ RUNS & RESULTS ============
+
+model Run {
+  id          String    @id @default(cuid())
+  projectId   String    @map("project_id")
+  title       String
+  description String?
+  status      String    @default("active") // active, completed, archived
+  createdById String    @map("created_by_id")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  completedAt DateTime? @map("completed_at")
+
+  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy User      @relation("CreatedBy", fields: [createdById], references: [id])
+  items     RunItem[]
+
+  @@index([projectId, status])
+  @@map("runs")
+}
+
+model RunItem {
+  id            String   @id @default(cuid())
+  runId         String   @map("run_id")
+  testVersionId String   @map("test_version_id")
+  orderIndex    Int      @map("order_index")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  run         Run         @relation(fields: [runId], references: [id], onDelete: Cascade)
+  testVersion TestVersion @relation(fields: [testVersionId], references: [id])
+  result      Result?
+
+  @@unique([runId, testVersionId])
+  @@map("run_items")
+}
+
+model Result {
+  id           String   @id @default(cuid())
+  runItemId    String   @unique @map("run_item_id")
+  status       String   // passed, failed, blocked, skipped, retest
+  notes        String?
+  duration     Int?     // milliseconds
+  recordedById String   @map("recorded_by_id")
+  recordedAt   DateTime @default(now()) @map("recorded_at")
+
+  runItem     RunItem      @relation(fields: [runItemId], references: [id], onDelete: Cascade)
+  recordedBy  User         @relation("RecordedBy", fields: [recordedById], references: [id])
+  attachments Attachment[]
+
+  @@map("results")
+}
+
+// ============ AUDIT LOG ============
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  projectId  String   @map("project_id")
+  userId     String?  @map("user_id")
+  action     String   // test.created, test.versionCreated, suite.moved, etc.
+  entityType String   @map("entity_type") // test, suite, run, etc.
+  entityId   String   @map("entity_id")
+  metadata   Json?    // Additional context (old/new values, etc.)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User?   @relation(fields: [userId], references: [id])
+
+  @@index([projectId, createdAt])
+  @@index([entityType, entityId])
+  @@map("audit_logs")
+}
+
+// ============ WEBHOOKS ============
+
+model Webhook {
+  id        String   @id @default(cuid())
+  projectId String   @map("project_id")
+  url       String
+  secret    String
+  events    String[] // Array of event types to subscribe to
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("webhooks")
+}

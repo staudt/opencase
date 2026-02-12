@@ -1,0 +1,32 @@
+{
+  "name": "opencase",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Open source, self-hosted test case management",
+  "author": "",
+  "license": "MIT",
+  "packageManager": "pnpm@9.0.0",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "dev": "turbo dev",
+    "dev:api": "turbo dev --filter=@opencase/api",
+    "dev:web": "turbo dev --filter=@opencase/web",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "typecheck": "turbo typecheck",
+    "test": "turbo test",
+    "db:migrate": "pnpm --filter @opencase/db migrate:dev",
+    "db:push": "pnpm --filter @opencase/db push",
+    "db:seed": "pnpm --filter @opencase/db seed",
+    "db:studio": "pnpm --filter @opencase/db studio",
+    "clean": "turbo clean && rimraf node_modules"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "rimraf": "^5.0.5",
+    "turbo": "^2.0.0",
+    "typescript": "^5.4.0"
+  }
+}

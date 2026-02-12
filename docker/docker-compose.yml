@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: opencase-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-opencase}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-opencase}
+      POSTGRES_DB: ${POSTGRES_DB:-opencase}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-opencase} -d ${POSTGRES_DB:-opencase}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.dev
+      target: api
+    container_name: opencase-api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://${POSTGRES_USER:-opencase}:${POSTGRES_PASSWORD:-opencase}@db:5432/${POSTGRES_DB:-opencase}
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-in-production}
+      PORT: 3001
+    ports:
+      - "3001:3001"
+    volumes:
+      - ../apps/api/src:/app/apps/api/src
+      - ../packages:/app/packages
+    command: pnpm dev:api
+
+  web:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.dev
+      target: web
+    container_name: opencase-web
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      VITE_API_URL: http://localhost:3001
+    ports:
+      - "5173:5173"
+    volumes:
+      - ../apps/web/src:/app/apps/web/src
+      - ../packages:/app/packages
+    command: pnpm dev:web
+
+volumes:
+  postgres_data:

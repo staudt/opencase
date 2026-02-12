@@ -1,0 +1,36 @@
+# Development Dockerfile with hot reload support
+FROM node:20-alpine AS base
+
+# Install pnpm
+RUN corepack enable && corepack prepare pnpm@9.0.0 --activate
+
+WORKDIR /app
+
+# Copy workspace configuration
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
+COPY turbo.json tsconfig.base.json ./
+
+# Copy all package.json files for dependency installation
+COPY apps/api/package.json ./apps/api/
+COPY apps/web/package.json ./apps/web/
+COPY packages/db/package.json ./packages/db/
+COPY packages/shared/package.json ./packages/shared/
+
+# Install dependencies
+RUN pnpm install --frozen-lockfile || pnpm install
+
+# Copy source code
+COPY . .
+
+# Generate Prisma client
+RUN pnpm --filter @opencase/db generate || true
+
+# API development target
+FROM base AS api
+EXPOSE 3001
+CMD ["pnpm", "dev:api"]
+
+# Web development target
+FROM base AS web
+EXPOSE 5173
+CMD ["pnpm", "dev:web"]

@@ -1,0 +1,29 @@
+{
+  "name": "@opencase/api-client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit",
+    "generate": "openapi-typescript http://localhost:3001/api/openapi.json -o ./src/generated/schema.ts",
+    "clean": "rimraf dist"
+  },
+  "dependencies": {
+    "@opencase/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "openapi-typescript": "^6.7.0",
+    "rimraf": "^5.0.5",
+    "typescript": "^5.4.0"
+  }
+}
