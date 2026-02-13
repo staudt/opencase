@@ -227,6 +227,21 @@ export interface Result {
   attachments: Attachment[];
 }
 
+export interface RunItemWithTest extends RunItem {
+  testVersion: TestVersion & {
+    test: { id: string; code: string };
+  };
+}
+
+export interface RunDetail extends Run {
+  items: RunItemWithTest[];
+  stats: RunStats;
+}
+
+export interface WorkspaceRun extends Run {
+  project: { id: string; name: string; slug: string };
+}
+
 // ============ Attachment Types ============
 
 export interface Attachment {

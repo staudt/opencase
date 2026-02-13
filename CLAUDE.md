@@ -123,7 +123,7 @@ Monorepo, Docker, Prisma, Auth, API shell, UI shell
 - ✓ Delete test (single delete with confirmation)
 - ✓ Export/Import (JSON export, import with conflict resolution, dry-run preview)
 
-### Phase 1.5: Test Tree View (in progress)
+### Phase 1.5: Test Tree View ✓
 - ✓ Main view shows all tests organized as tree by suite (not a flat filtered list)
 - ✓ Clicking suite in sidebar scrolls to that section in main tree
 - ✓ Expand/collapse individual suites and expand/collapse all
@@ -132,15 +132,19 @@ Monorepo, Docker, Prisma, Auth, API shell, UI shell
 - ✓ API: GET /tests/grouped (all tests grouped by suite)
 - ✓ API: POST /tests/:testId/move (move test between suites)
 
-### Phase 2: Runs Light
-- Create runs with flexible test selection (all tests, by suite, by tag, manual pick)
+### Phase 2: Runs Light (in progress)
+- ✓ Run CRUD with flexible test selection (all tests, by suite, by tag, manual pick)
+- ✓ Record results (passed/failed/blocked/skipped/retest/untested) with inline status dropdowns
+- ✓ Progress views and run statistics (stacked progress bar, per-status counts)
+- ✓ Workspace-level runs list (cross-project, filterable by status/project)
+- ✓ Run detail page with optimistic result recording
+- ✓ API: GET/POST /projects/:projectId/runs, GET/PATCH/DELETE /runs/:runId
+- ✓ API: PUT/DELETE /runs/:runId/items/:itemId/result
+- ✓ API: GET /workspaces/:workspaceId/runs (workspace-level listing)
 - Assign runs to users (run-level and individual test-level assignment)
 - Step-through execution view (focused view, one test at a time, prev/next)
 - Customizable steps per run (modify test steps for the specific run context)
-- Record results (passed/failed/blocked/skipped/retest/untested)
 - Attachments on results (screenshots, logs)
-- Progress views and run statistics
-- Data model already defined: Run, RunItem, Result, Attachment in Prisma schema
 
 ### Phase 3: API Polish & Automation
 - REST API quality pass (automation-friendly endpoints for tests, suites, runs)

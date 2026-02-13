@@ -7,6 +7,8 @@ import { ProjectsPage } from './routes/projects';
 import { ProjectPage } from './routes/project';
 import { TestDetailPage } from './routes/test-detail';
 import { RunsPage } from './routes/runs';
+import { RunDetailPage } from './routes/run-detail';
+import { RunExecutionPage } from './routes/run-execution';
 import { TagsPage } from './routes/tags';
 import { SettingsPage } from './routes/settings';
 import { Toaster } from './components/ui/toaster';
@@ -36,6 +38,8 @@ function App() {
                   <Route path="/projects" element={<ProjectsPage />} />
                   <Route path="/projects/:projectId" element={<ProjectPage />} />
                   <Route path="/projects/:projectId/tests/:testId" element={<TestDetailPage />} />
+                  <Route path="/projects/:projectId/runs/:runId" element={<RunDetailPage />} />
+                  <Route path="/projects/:projectId/runs/:runId/execute" element={<RunExecutionPage />} />
                   <Route path="/runs" element={<RunsPage />} />
                   <Route path="/tags" element={<TagsPage />} />
                   <Route path="/settings" element={<SettingsPage />} />

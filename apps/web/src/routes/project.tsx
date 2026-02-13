@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
-import { useParams, Link } from 'react-router-dom';
-import { ChevronLeft, FolderTree, Plus, GripVertical, Folder, FileText } from 'lucide-react';
+import { useParams, Link, useNavigate } from 'react-router-dom';
+import { ChevronLeft, FolderTree, Plus, GripVertical, Folder, FileText, FlaskConical } from 'lucide-react';
 import {
   DndContext,
   DragOverlay,
@@ -28,11 +28,13 @@ import { TestTreeView } from '@/components/project/TestTreeView';
 import { CreateSuiteDialog } from '@/components/project/CreateSuiteDialog';
 import { CreateTestDialog } from '@/components/project/CreateTestDialog';
 import { ImportExportMenu } from '@/components/project/ImportExportMenu';
+import { CreateRunDialog } from '@/components/runs/CreateRunDialog';
 import { useToast } from '@/hooks/use-toast';
 
 export function ProjectPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const { currentWorkspace } = useWorkspaceStore();
+  const navigate = useNavigate();
   const { toast } = useToast();
 
   const [project, setProject] = useState<Project | null>(null);
@@ -44,6 +46,7 @@ export function ProjectPage() {
 
   const [showCreateSuite, setShowCreateSuite] = useState(false);
   const [showCreateTest, setShowCreateTest] = useState(false);
+  const [showCreateRun, setShowCreateRun] = useState(false);
 
   // Sidebar navigation state
   const [highlightedSuiteId, setHighlightedSuiteId] = useState<string | null>(null);
@@ -320,6 +323,10 @@ export function ProjectPage() {
               <Plus className="h-4 w-4 mr-2" />
               New Test
             </Button>
+            <Button variant="outline" size="sm" onClick={() => setShowCreateRun(true)}>
+              <FlaskConical className="h-4 w-4 mr-2" />
+              New Run
+            </Button>
             <ImportExportMenu
               projectId={projectId!}
               projectSlug={project.slug}
@@ -396,6 +403,16 @@ export function ProjectPage() {
         projectId={projectId!}
         suiteId={highlightedSuiteId}
         onCreated={handleTestCreated}
+      />
+      <CreateRunDialog
+        open={showCreateRun}
+        onOpenChange={setShowCreateRun}
+        projectId={projectId!}
+        projects={project ? [project] : []}
+        onCreated={(run) => {
+          setShowCreateRun(false);
+          navigate(`/projects/${run.projectId}/runs/${run.id}`);
+        }}
       />
     </div>
   );

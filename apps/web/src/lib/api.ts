@@ -361,6 +361,116 @@ export const testApi = {
   },
 };
 
+// Run Types
+
+export type RunStatus = 'active' | 'completed' | 'archived';
+export type ResultStatus = 'passed' | 'failed' | 'blocked' | 'skipped' | 'retest' | 'untested';
+
+export interface RunStats {
+  total: number;
+  passed: number;
+  failed: number;
+  blocked: number;
+  skipped: number;
+  retest: number;
+  untested: number;
+}
+
+export interface Run {
+  id: string;
+  projectId: string;
+  title: string;
+  description: string | null;
+  status: RunStatus;
+  createdBy: { id: string; email: string; name: string; avatarUrl: string | null };
+  createdAt: string;
+  completedAt: string | null;
+  stats: RunStats;
+}
+
+export interface WorkspaceRun extends Run {
+  project: { id: string; name: string; slug: string };
+}
+
+export interface RunItemDetail {
+  id: string;
+  runId: string;
+  testVersionId: string;
+  orderIndex: number;
+  testVersion: TestVersion & {
+    test: { id: string; code: string };
+  };
+  result: ResultDetail | null;
+  createdAt: string;
+}
+
+export interface ResultDetail {
+  id: string;
+  runItemId: string;
+  status: ResultStatus;
+  notes: string | null;
+  duration: number | null;
+  recordedBy: { id: string; email: string; name: string; avatarUrl: string | null };
+  recordedAt: string;
+}
+
+export interface RunDetail extends Run {
+  items: RunItemDetail[];
+}
+
+export interface TestSelectionInput {
+  mode: 'all' | 'suite' | 'tag' | 'manual';
+  suiteIds?: string[];
+  tagIds?: string[];
+  testIds?: string[];
+}
+
+// Run API
+export const runApi = {
+  async listForWorkspace(workspaceId: string, options?: { status?: string; projectId?: string; cursor?: string; limit?: number }) {
+    const params = new URLSearchParams();
+    if (options?.status) params.set('status', options.status);
+    if (options?.projectId) params.set('projectId', options.projectId);
+    if (options?.cursor) params.set('cursor', options.cursor);
+    if (options?.limit) params.set('limit', String(options.limit));
+    const query = params.toString();
+    return api.get<PaginatedResponse<WorkspaceRun>>(`/workspaces/${workspaceId}/runs${query ? `?${query}` : ''}`);
+  },
+
+  async list(projectId: string, options?: { status?: string; cursor?: string; limit?: number }) {
+    const params = new URLSearchParams();
+    if (options?.status) params.set('status', options.status);
+    if (options?.cursor) params.set('cursor', options.cursor);
+    if (options?.limit) params.set('limit', String(options.limit));
+    const query = params.toString();
+    return api.get<PaginatedResponse<Run>>(`/projects/${projectId}/runs${query ? `?${query}` : ''}`);
+  },
+
+  async get(projectId: string, runId: string) {
+    return api.get<{ data: RunDetail }>(`/projects/${projectId}/runs/${runId}`);
+  },
+
+  async create(projectId: string, data: { title: string; description?: string; selection: TestSelectionInput }) {
+    return api.post<{ data: Run }>(`/projects/${projectId}/runs`, data);
+  },
+
+  async update(projectId: string, runId: string, data: { title?: string; description?: string | null; status?: RunStatus }) {
+    return api.patch<{ data: Run }>(`/projects/${projectId}/runs/${runId}`, data);
+  },
+
+  async delete(projectId: string, runId: string) {
+    return api.delete<{ data: { success: boolean } }>(`/projects/${projectId}/runs/${runId}`);
+  },
+
+  async recordResult(projectId: string, runId: string, runItemId: string, data: { status: string; notes?: string | null; duration?: number | null }) {
+    return api.put<{ data: ResultDetail }>(`/projects/${projectId}/runs/${runId}/items/${runItemId}/result`, data);
+  },
+
+  async clearResult(projectId: string, runId: string, runItemId: string) {
+    return api.delete<{ data: { success: boolean } }>(`/projects/${projectId}/runs/${runId}/items/${runItemId}/result`);
+  },
+};
+
 // Export/Import Types
 export interface ExportSchema {
   version: string;

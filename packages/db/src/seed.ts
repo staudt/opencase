@@ -311,6 +311,34 @@ async function main() {
 
   console.log('✅ Created sample run with', smokeTests.length, 'tests');
 
+  // Add sample results to the run
+  const runItems = await prisma.runItem.findMany({
+    where: { runId: run.id },
+    orderBy: { orderIndex: 'asc' },
+  });
+
+  if (runItems.length >= 3) {
+    await prisma.result.create({
+      data: {
+        runItemId: runItems[0].id,
+        status: 'passed',
+        notes: 'All steps verified successfully',
+        recordedById: demoUser.id,
+      },
+    });
+    await prisma.result.create({
+      data: {
+        runItemId: runItems[1].id,
+        status: 'failed',
+        notes: 'Registration form validation not working on mobile',
+        recordedById: demoUser.id,
+      },
+    });
+    // Leave remaining items untested for demo
+  }
+
+  console.log('✅ Added sample results to run');
+
   console.log('\n🎉 Seed completed successfully!');
   console.log('\nDemo credentials:');
   console.log('  Email: demo@opencase.dev');

@@ -16,6 +16,7 @@ import { suiteRoutes } from './modules/suites/routes.js';
 import { testRoutes } from './modules/tests/routes.js';
 import { tagRoutes } from './modules/tags/routes.js';
 import { exportRoutes } from './modules/export/routes.js';
+import { runRoutes, workspaceRunRoutes } from './modules/runs/routes.js';
 
 async function buildApp() {
   const app = Fastify({
@@ -58,6 +59,8 @@ async function buildApp() {
   await app.register(testRoutes, { prefix: '/api/projects/:projectId/tests' });
   await app.register(tagRoutes, { prefix: '/api/projects/:projectId/tags' });
   await app.register(exportRoutes, { prefix: '/api/projects/:projectId' });
+  await app.register(runRoutes, { prefix: '/api/projects/:projectId/runs' });
+  await app.register(workspaceRunRoutes, { prefix: '/api/workspaces/:workspaceId/runs' });
 
   return app;
 }

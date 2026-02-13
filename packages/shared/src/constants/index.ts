@@ -46,6 +46,27 @@ export const RESULT_STATUS_COLORS: Record<string, string> = {
 
 export const RUN_STATUSES = ['active', 'completed', 'archived'] as const;
 
+export const RESULT_STATUS_LABELS: Record<string, string> = {
+  passed: 'Passed',
+  failed: 'Failed',
+  blocked: 'Blocked',
+  skipped: 'Skipped',
+  retest: 'Retest',
+  untested: 'Untested',
+};
+
+export const RUN_STATUS_LABELS: Record<string, string> = {
+  active: 'Active',
+  completed: 'Completed',
+  archived: 'Archived',
+};
+
+export const RUN_STATUS_COLORS: Record<string, string> = {
+  active: '#3b82f6',
+  completed: '#22c55e',
+  archived: '#6b7280',
+};
+
 // ============ Block Types ============
 
 export const BLOCK_TYPES = ['step', 'expected', 'note', 'precondition', 'table', 'attachment'] as const;
