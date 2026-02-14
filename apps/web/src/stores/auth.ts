@@ -16,18 +16,22 @@ export const useAuthStore = create<AuthState>()(
       user: null,
       token: null,
       isAuthenticated: false,
-      setAuth: (user, token) =>
+      setAuth: (user, token) => {
+        document.cookie = `token=${token}; path=/; SameSite=Strict`;
         set({
           user,
           token,
           isAuthenticated: true,
-        }),
-      logout: () =>
+        });
+      },
+      logout: () => {
+        document.cookie = 'token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
         set({
           user: null,
           token: null,
           isAuthenticated: false,
-        }),
+        });
+      },
     }),
     {
       name: 'opencase-auth',
@@ -36,6 +40,12 @@ export const useAuthStore = create<AuthState>()(
         token: state.token,
         isAuthenticated: state.isAuthenticated,
       }),
+      onRehydrateStorage: () => (state) => {
+        // Sync cookie on page load from persisted token
+        if (state?.token) {
+          document.cookie = `token=${state.token}; path=/; SameSite=Strict`;
+        }
+      },
     }
   )
 );

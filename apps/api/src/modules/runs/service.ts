@@ -1,12 +1,15 @@
 import type { PrismaClient } from '@opencase/db';
 import { z } from 'zod';
 import type { RunStats, TestContent } from '@opencase/shared';
+import { storage } from '../../services/storage.js';
+import { attachmentService, type AttachmentResponse } from '../attachments/service.js';
 
 // ============ Schemas ============
 
 export const createRunSchema = z.object({
   title: z.string().min(1).max(200),
   description: z.string().max(2000).optional(),
+  assignedToId: z.string().nullable().optional(),
   selection: z.discriminatedUnion('mode', [
     z.object({ mode: z.literal('all') }),
     z.object({ mode: z.literal('suite'), suiteIds: z.array(z.string()).min(1) }),
@@ -19,6 +22,11 @@ export const updateRunSchema = z.object({
   title: z.string().min(1).max(200).optional(),
   description: z.string().max(2000).nullable().optional(),
   status: z.enum(['active', 'completed', 'archived']).optional(),
+  assignedToId: z.string().nullable().optional(),
+});
+
+export const updateRunItemSchema = z.object({
+  assignedToId: z.string().nullable(),
 });
 
 export const listRunsSchema = z.object({
@@ -38,10 +46,12 @@ export const recordResultSchema = z.object({
   status: z.enum(['passed', 'failed', 'blocked', 'skipped', 'retest']),
   notes: z.string().max(5000).nullable().optional(),
   duration: z.number().int().min(0).nullable().optional(),
+  attachmentIds: z.array(z.string()).max(5).optional(),
 });
 
 export type CreateRunInput = z.infer<typeof createRunSchema>;
 export type UpdateRunInput = z.infer<typeof updateRunSchema>;
+export type UpdateRunItemInput = z.infer<typeof updateRunItemSchema>;
 export type ListRunsOptions = z.infer<typeof listRunsSchema>;
 export type ListWorkspaceRunsOptions = z.infer<typeof listWorkspaceRunsSchema>;
 export type RecordResultInput = z.infer<typeof recordResultSchema>;
@@ -62,6 +72,7 @@ interface RunResponse {
   description: string | null;
   status: string;
   createdBy: AuthUser;
+  assignedTo: AuthUser | null;
   createdAt: string;
   completedAt: string | null;
   stats: RunStats;
@@ -76,6 +87,7 @@ interface RunItemResponse {
   runId: string;
   testVersionId: string;
   orderIndex: number;
+  assignedTo: AuthUser | null;
   testVersion: {
     id: string;
     testId: string;
@@ -100,6 +112,7 @@ interface ResultResponse {
   duration: number | null;
   recordedBy: AuthUser;
   recordedAt: string;
+  attachments: AttachmentResponse[];
 }
 
 interface RunDetailResponse extends RunResponse {
@@ -152,6 +165,9 @@ export const runService = {
         createdBy: {
           select: { id: true, email: true, name: true, avatarUrl: true },
         },
+        assignedTo: {
+          select: { id: true, email: true, name: true, avatarUrl: true },
+        },
       },
     });
 
@@ -169,6 +185,7 @@ export const runService = {
       description: r.description,
       status: r.status,
       createdBy: r.createdBy as AuthUser,
+      assignedTo: (r.assignedTo as AuthUser) ?? null,
       createdAt: r.createdAt.toISOString(),
       completedAt: r.completedAt?.toISOString() ?? null,
       stats: statsMap.get(r.id) ?? emptyStats(),
@@ -229,6 +246,9 @@ export const runService = {
         createdBy: {
           select: { id: true, email: true, name: true, avatarUrl: true },
         },
+        assignedTo: {
+          select: { id: true, email: true, name: true, avatarUrl: true },
+        },
       },
     });
 
@@ -248,6 +268,7 @@ export const runService = {
         description: r.description,
         status: r.status,
         createdBy: r.createdBy as AuthUser,
+        assignedTo: (r.assignedTo as AuthUser) ?? null,
         createdAt: r.createdAt.toISOString(),
         completedAt: r.completedAt?.toISOString() ?? null,
         stats: statsMap.get(r.id) ?? emptyStats(),
@@ -288,9 +309,15 @@ export const runService = {
         createdBy: {
           select: { id: true, email: true, name: true, avatarUrl: true },
         },
+        assignedTo: {
+          select: { id: true, email: true, name: true, avatarUrl: true },
+        },
         items: {
           orderBy: { orderIndex: 'asc' },
           include: {
+            assignedTo: {
+              select: { id: true, email: true, name: true, avatarUrl: true },
+            },
             testVersion: {
               include: {
                 test: { select: { id: true, code: true } },
@@ -304,6 +331,7 @@ export const runService = {
                 recordedBy: {
                   select: { id: true, email: true, name: true, avatarUrl: true },
                 },
+                attachments: true,
               },
             },
           },
@@ -324,6 +352,7 @@ export const runService = {
       description: run.description,
       status: run.status,
       createdBy: run.createdBy as AuthUser,
+      assignedTo: (run.assignedTo as AuthUser) ?? null,
       createdAt: run.createdAt.toISOString(),
       completedAt: run.completedAt?.toISOString() ?? null,
       stats,
@@ -332,6 +361,7 @@ export const runService = {
         runId: item.runId,
         testVersionId: item.testVersionId,
         orderIndex: item.orderIndex,
+        assignedTo: (item.assignedTo as AuthUser) ?? null,
         testVersion: {
           id: item.testVersion.id,
           testId: item.testVersion.testId,
@@ -353,6 +383,7 @@ export const runService = {
               duration: item.result.duration,
               recordedBy: item.result.recordedBy as AuthUser,
               recordedAt: item.result.recordedAt.toISOString(),
+              attachments: item.result.attachments.map(attachmentService.formatAttachment),
             }
           : null,
         createdAt: item.createdAt.toISOString(),
@@ -447,9 +478,13 @@ export const runService = {
           title: input.title,
           description: input.description,
           createdById: userId,
+          assignedToId: input.assignedToId ?? null,
         },
         include: {
           createdBy: {
+            select: { id: true, email: true, name: true, avatarUrl: true },
+          },
+          assignedTo: {
             select: { id: true, email: true, name: true, avatarUrl: true },
           },
         },
@@ -491,6 +526,7 @@ export const runService = {
         description: run.description,
         status: run.status,
         createdBy: run.createdBy as AuthUser,
+        assignedTo: (run.assignedTo as AuthUser) ?? null,
         createdAt: run.createdAt.toISOString(),
         completedAt: run.completedAt?.toISOString() ?? null,
         stats: {
@@ -540,6 +576,7 @@ export const runService = {
     const updateData: Record<string, unknown> = {};
     if (input.title !== undefined) updateData.title = input.title;
     if (input.description !== undefined) updateData.description = input.description;
+    if (input.assignedToId !== undefined) updateData.assignedToId = input.assignedToId;
     if (input.status !== undefined) {
       updateData.status = input.status;
       if (input.status === 'completed' && !existing.completedAt) {
@@ -552,6 +589,9 @@ export const runService = {
       data: updateData,
       include: {
         createdBy: {
+          select: { id: true, email: true, name: true, avatarUrl: true },
+        },
+        assignedTo: {
           select: { id: true, email: true, name: true, avatarUrl: true },
         },
       },
@@ -584,6 +624,7 @@ export const runService = {
         description: run.description,
         status: run.status,
         createdBy: run.createdBy as AuthUser,
+        assignedTo: (run.assignedTo as AuthUser) ?? null,
         createdAt: run.createdAt.toISOString(),
         completedAt: run.completedAt?.toISOString() ?? null,
         stats,
@@ -689,6 +730,28 @@ export const runService = {
       },
     });
 
+    // Link attachments if provided
+    if (input.attachmentIds && input.attachmentIds.length > 0) {
+      const attachments = await prisma.attachment.findMany({
+        where: {
+          id: { in: input.attachmentIds },
+          uploadedById: userId,
+        },
+      });
+      if (attachments.length !== input.attachmentIds.length) {
+        return { error: 'BAD_REQUEST', message: 'One or more attachments not found' };
+      }
+      await prisma.attachment.updateMany({
+        where: { id: { in: input.attachmentIds } },
+        data: { resultId: result.id },
+      });
+    }
+
+    // Fetch attachments for response
+    const resultAttachments = await prisma.attachment.findMany({
+      where: { resultId: result.id },
+    });
+
     // Audit log
     await prisma.auditLog.create({
       data: {
@@ -714,6 +777,7 @@ export const runService = {
         duration: result.duration,
         recordedBy: result.recordedBy as AuthUser,
         recordedAt: result.recordedAt.toISOString(),
+        attachments: resultAttachments.map(attachmentService.formatAttachment),
       },
     };
   },
@@ -760,8 +824,71 @@ export const runService = {
       return { error: 'NOT_FOUND', message: 'No result to clear' };
     }
 
+    // Delete attachment files from storage before cascade-deleting DB records
+    const attachments = await prisma.attachment.findMany({
+      where: { resultId: runItem.result.id },
+    });
+    for (const att of attachments) {
+      await storage.delete(att.storageKey);
+    }
+
     await prisma.result.delete({
       where: { runItemId },
+    });
+
+    return { data: { success: true } };
+  },
+
+  /**
+   * Update a run item (assignment)
+   */
+  async updateRunItem(
+    prisma: PrismaClient,
+    projectId: string,
+    runId: string,
+    runItemId: string,
+    userId: string,
+    input: UpdateRunItemInput
+  ): Promise<{ data: { success: boolean } } | { error: string; message: string }> {
+    const runItem = await prisma.runItem.findFirst({
+      where: { id: runItemId, runId },
+      include: {
+        run: {
+          include: {
+            project: {
+              include: {
+                workspace: {
+                  include: {
+                    members: { where: { userId } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!runItem || runItem.run.projectId !== projectId || runItem.run.project.workspace.members.length === 0) {
+      return { error: 'NOT_FOUND', message: 'Run item not found' };
+    }
+
+    // Validate assignee is a workspace member (if not null)
+    if (input.assignedToId) {
+      const assigneeMembership = await prisma.workspaceMember.findFirst({
+        where: {
+          workspaceId: runItem.run.project.workspaceId,
+          userId: input.assignedToId,
+        },
+      });
+      if (!assigneeMembership) {
+        return { error: 'BAD_REQUEST', message: 'Assignee is not a workspace member' };
+      }
+    }
+
+    await prisma.runItem.update({
+      where: { id: runItemId },
+      data: { assignedToId: input.assignedToId },
     });
 
     return { data: { success: true } };

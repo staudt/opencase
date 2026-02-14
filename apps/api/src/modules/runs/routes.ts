@@ -3,6 +3,7 @@ import {
   runService,
   createRunSchema,
   updateRunSchema,
+  updateRunItemSchema,
   listRunsSchema,
   listWorkspaceRunsSchema,
   recordResultSchema,
@@ -197,6 +198,37 @@ export const runRoutes: FastifyPluginAsync = async (fastify) => {
         request.params.runId,
         request.params.runItemId,
         request.user.id
+      );
+
+      if ('error' in result) {
+        const status = result.error === 'NOT_FOUND' ? 404 : 400;
+        return reply.status(status).send({
+          error: { code: result.error, message: result.message },
+        });
+      }
+
+      return reply.send(result);
+    }
+  );
+
+  // Update a run item (assignment)
+  fastify.patch<{ Params: { projectId: string; runId: string; runItemId: string } }>(
+    '/:runId/items/:runItemId',
+    async (request, reply) => {
+      if (!request.user) {
+        return reply.status(401).send({
+          error: { code: 'UNAUTHORIZED', message: 'Authentication required' },
+        });
+      }
+
+      const body = updateRunItemSchema.parse(request.body);
+      const result = await runService.updateRunItem(
+        fastify.prisma,
+        request.params.projectId,
+        request.params.runId,
+        request.params.runItemId,
+        request.user.id,
+        body
       );
 
       if ('error' in result) {

@@ -50,4 +50,29 @@ export const workspaceService = {
       createdAt: membership.workspace.createdAt,
     };
   },
+
+  async listMembers(prisma: PrismaClient, workspaceId: string, userId: string) {
+    // Verify caller is a member
+    const callerMembership = await prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId } },
+    });
+    if (!callerMembership) return null;
+
+    const members = await prisma.workspaceMember.findMany({
+      where: { workspaceId },
+      include: {
+        user: {
+          select: { id: true, email: true, name: true, avatarUrl: true },
+        },
+      },
+      orderBy: { user: { name: 'asc' } },
+    });
+
+    return members.map((m) => ({
+      id: m.id,
+      userId: m.userId,
+      role: m.role,
+      user: m.user,
+    }));
+  },
 };

@@ -138,6 +138,13 @@ export interface Project {
 }
 
 // Workspace API
+export interface WorkspaceMember {
+  id: string;
+  userId: string;
+  role: string;
+  user: { id: string; email: string; name: string; avatarUrl: string | null };
+}
+
 export const workspaceApi = {
   async list() {
     return api.get<{ data: Workspace[] }>('/workspaces');
@@ -145,6 +152,10 @@ export const workspaceApi = {
 
   async get(workspaceId: string) {
     return api.get<{ data: Workspace }>(`/workspaces/${workspaceId}`);
+  },
+
+  async listMembers(workspaceId: string) {
+    return api.get<{ data: WorkspaceMember[] }>(`/workspaces/${workspaceId}/members`);
   },
 };
 
@@ -383,6 +394,7 @@ export interface Run {
   description: string | null;
   status: RunStatus;
   createdBy: { id: string; email: string; name: string; avatarUrl: string | null };
+  assignedTo: { id: string; email: string; name: string; avatarUrl: string | null } | null;
   createdAt: string;
   completedAt: string | null;
   stats: RunStats;
@@ -397,10 +409,20 @@ export interface RunItemDetail {
   runId: string;
   testVersionId: string;
   orderIndex: number;
+  assignedTo: { id: string; email: string; name: string; avatarUrl: string | null } | null;
   testVersion: TestVersion & {
     test: { id: string; code: string };
   };
   result: ResultDetail | null;
+  createdAt: string;
+}
+
+export interface Attachment {
+  id: string;
+  filename: string;
+  contentType: string;
+  size: number;
+  url: string;
   createdAt: string;
 }
 
@@ -412,6 +434,7 @@ export interface ResultDetail {
   duration: number | null;
   recordedBy: { id: string; email: string; name: string; avatarUrl: string | null };
   recordedAt: string;
+  attachments: Attachment[];
 }
 
 export interface RunDetail extends Run {
@@ -450,11 +473,11 @@ export const runApi = {
     return api.get<{ data: RunDetail }>(`/projects/${projectId}/runs/${runId}`);
   },
 
-  async create(projectId: string, data: { title: string; description?: string; selection: TestSelectionInput }) {
+  async create(projectId: string, data: { title: string; description?: string; assignedToId?: string | null; selection: TestSelectionInput }) {
     return api.post<{ data: Run }>(`/projects/${projectId}/runs`, data);
   },
 
-  async update(projectId: string, runId: string, data: { title?: string; description?: string | null; status?: RunStatus }) {
+  async update(projectId: string, runId: string, data: { title?: string; description?: string | null; status?: RunStatus; assignedToId?: string | null }) {
     return api.patch<{ data: Run }>(`/projects/${projectId}/runs/${runId}`, data);
   },
 
@@ -462,12 +485,47 @@ export const runApi = {
     return api.delete<{ data: { success: boolean } }>(`/projects/${projectId}/runs/${runId}`);
   },
 
-  async recordResult(projectId: string, runId: string, runItemId: string, data: { status: string; notes?: string | null; duration?: number | null }) {
+  async recordResult(projectId: string, runId: string, runItemId: string, data: { status: string; notes?: string | null; duration?: number | null; attachmentIds?: string[] }) {
     return api.put<{ data: ResultDetail }>(`/projects/${projectId}/runs/${runId}/items/${runItemId}/result`, data);
   },
 
   async clearResult(projectId: string, runId: string, runItemId: string) {
     return api.delete<{ data: { success: boolean } }>(`/projects/${projectId}/runs/${runId}/items/${runItemId}/result`);
+  },
+
+  async updateItem(projectId: string, runId: string, runItemId: string, data: { assignedToId: string | null }) {
+    return api.patch<{ data: { success: boolean } }>(`/projects/${projectId}/runs/${runId}/items/${runItemId}`, data);
+  },
+};
+
+// Attachment API
+export const attachmentApi = {
+  async upload(projectId: string, file: File): Promise<{ data: Attachment }> {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const token = useAuthStore.getState().token;
+    const headers: HeadersInit = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    // Do NOT set Content-Type — the browser sets it with the multipart boundary
+
+    const response = await fetch(`${API_BASE}/projects/${projectId}/attachments`, {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+
+    return handleResponse<{ data: Attachment }>(response);
+  },
+
+  async delete(projectId: string, attachmentId: string) {
+    return api.delete<{ data: { success: boolean } }>(`/projects/${projectId}/attachments/${attachmentId}`);
+  },
+
+  getDownloadUrl(attachmentId: string): string {
+    return `${API_BASE}/attachments/${attachmentId}/download`;
   },
 };
 

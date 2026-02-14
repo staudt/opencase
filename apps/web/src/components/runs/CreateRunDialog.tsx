@@ -26,6 +26,7 @@ import {
 } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
 import { ChevronLeft } from 'lucide-react';
+import { UserPicker } from '@/components/runs/UserPicker';
 
 interface CreateRunDialogProps {
   open: boolean;
@@ -52,6 +53,7 @@ export function CreateRunDialog({
   const [selectedSuiteIds, setSelectedSuiteIds] = useState<Set<string>>(new Set());
   const [selectedTagIds, setSelectedTagIds] = useState<Set<string>>(new Set());
   const [selectedTestIds, setSelectedTestIds] = useState<Set<string>>(new Set());
+  const [assignedToId, setAssignedToId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
 
@@ -72,6 +74,7 @@ export function CreateRunDialog({
       setSelectedSuiteIds(new Set());
       setSelectedTagIds(new Set());
       setSelectedTestIds(new Set());
+      setAssignedToId(null);
     }
   }, [open, initialProjectId, projects]);
 
@@ -149,6 +152,7 @@ export function CreateRunDialog({
         title: title.trim(),
         description: description.trim() || undefined,
         selection,
+        assignedToId: assignedToId || undefined,
       });
       toast({ title: 'Success', description: 'Run created successfully' });
       onCreated(response.data);
@@ -240,6 +244,15 @@ export function CreateRunDialog({
                 onChange={(e) => setDescription(e.target.value)}
                 rows={3}
               />
+            </div>
+            <div className="space-y-2">
+              <Label>Assignee (optional)</Label>
+              <div>
+                <UserPicker
+                  value={assignedToId}
+                  onChange={setAssignedToId}
+                />
+              </div>
             </div>
           </div>
         ) : (

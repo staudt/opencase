@@ -21,9 +21,11 @@ model User {
   sessions     Session[]
   memberships  WorkspaceMember[]
   testVersions TestVersion[]     @relation("CreatedBy")
-  runs         Run[]             @relation("CreatedBy")
-  results      Result[]          @relation("RecordedBy")
-  auditLogs    AuditLog[]
+  runs             Run[]             @relation("CreatedBy")
+  assignedRuns     Run[]             @relation("RunAssignee")
+  results          Result[]          @relation("RecordedBy")
+  assignedRunItems RunItem[]         @relation("RunItemAssignee")
+  auditLogs        AuditLog[]
 
   @@map("users")
 }
@@ -222,18 +224,20 @@ model Attachment {
 // ============ RUNS & RESULTS ============
 
 model Run {
-  id          String    @id @default(cuid())
-  projectId   String    @map("project_id")
-  title       String
-  description String?
-  status      String    @default("active") // active, completed, archived
-  createdById String    @map("created_by_id")
-  createdAt   DateTime  @default(now()) @map("created_at")
-  completedAt DateTime? @map("completed_at")
+  id           String    @id @default(cuid())
+  projectId    String    @map("project_id")
+  title        String
+  description  String?
+  status       String    @default("active") // active, completed, archived
+  createdById  String    @map("created_by_id")
+  assignedToId String?   @map("assigned_to_id")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  completedAt  DateTime? @map("completed_at")
 
-  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  createdBy User      @relation("CreatedBy", fields: [createdById], references: [id])
-  items     RunItem[]
+  project    Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy  User      @relation("CreatedBy", fields: [createdById], references: [id])
+  assignedTo User?     @relation("RunAssignee", fields: [assignedToId], references: [id])
+  items      RunItem[]
 
   @@index([projectId, status])
   @@map("runs")
@@ -243,11 +247,13 @@ model RunItem {
   id            String   @id @default(cuid())
   runId         String   @map("run_id")
   testVersionId String   @map("test_version_id")
+  assignedToId  String?  @map("assigned_to_id")
   orderIndex    Int      @map("order_index")
   createdAt     DateTime @default(now()) @map("created_at")
 
   run         Run         @relation(fields: [runId], references: [id], onDelete: Cascade)
   testVersion TestVersion @relation(fields: [testVersionId], references: [id])
+  assignedTo  User?       @relation("RunItemAssignee", fields: [assignedToId], references: [id])
   result      Result?
 
   @@unique([runId, testVersionId])

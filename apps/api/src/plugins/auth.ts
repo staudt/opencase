@@ -25,14 +25,20 @@ const authPluginImpl: FastifyPluginAsync = async (fastify) => {
   fastify.decorateRequest('user', null);
   fastify.decorateRequest('session', null);
 
-  // Authentication hook
+  // Authentication hook — checks Bearer header first, then falls back to cookie
   fastify.addHook('onRequest', async (request) => {
+    let token: string | undefined;
+
     const authHeader = request.headers.authorization;
-    if (!authHeader?.startsWith('Bearer ')) {
-      return;
+    if (authHeader?.startsWith('Bearer ')) {
+      token = authHeader.slice(7);
     }
 
-    const token = authHeader.slice(7);
+    // Fallback: check cookie (needed for <img src>, <a href>, etc.)
+    if (!token && request.cookies?.token) {
+      token = request.cookies.token;
+    }
+
     if (!token) {
       return;
     }

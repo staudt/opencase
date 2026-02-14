@@ -43,4 +43,30 @@ export const workspaceRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.send({ data: workspace });
     }
   );
+
+  // List workspace members
+  fastify.get<{ Params: { workspaceId: string } }>(
+    '/:workspaceId/members',
+    async (request, reply) => {
+      if (!request.user) {
+        return reply.status(401).send({
+          error: { code: 'UNAUTHORIZED', message: 'Authentication required' },
+        });
+      }
+
+      const members = await workspaceService.listMembers(
+        fastify.prisma,
+        request.params.workspaceId,
+        request.user.id
+      );
+
+      if (!members) {
+        return reply.status(404).send({
+          error: { code: 'NOT_FOUND', message: 'Workspace not found' },
+        });
+      }
+
+      return reply.send({ data: members });
+    }
+  );
 };

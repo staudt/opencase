@@ -38,6 +38,8 @@ import { useWorkspaceStore } from '@/stores/workspace';
 import { useToast } from '@/hooks/use-toast';
 import { RunProgressBar } from '@/components/runs/RunProgressBar';
 import { ResultStatusBadge, RunStatusBadge } from '@/components/runs/ResultStatusBadge';
+import { UserPicker } from '@/components/runs/UserPicker';
+import { AttachmentList } from '@/components/runs/AttachmentList';
 
 const RESULT_STATUSES = [
   { value: 'passed', label: 'Passed', color: '#22c55e' },
@@ -104,6 +106,7 @@ export function RunDetailPage() {
           duration: i.result?.duration ?? null,
           recordedBy: i.result?.recordedBy ?? { id: '', email: '', name: '', avatarUrl: null },
           recordedAt: new Date().toISOString(),
+          attachments: i.result?.attachments ?? [],
         },
       };
     });
@@ -133,6 +136,35 @@ export function RunDetailPage() {
     } catch (err) {
       setRun({ ...run, items: prevItems });
       const message = err instanceof ApiError ? err.message : 'Failed to clear result';
+      toast({ title: 'Error', description: message, variant: 'destructive' });
+    }
+  };
+
+  const handleAssignRun = async (userId: string | null) => {
+    if (!projectId || !runId || !run) return;
+    try {
+      await runApi.update(projectId, runId, { assignedToId: userId });
+      fetchRun();
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : 'Failed to update assignment';
+      toast({ title: 'Error', description: message, variant: 'destructive' });
+    }
+  };
+
+  const handleAssignItem = async (item: RunItemDetail, userId: string | null) => {
+    if (!projectId || !runId || !run) return;
+    try {
+      await runApi.updateItem(projectId, runId, item.id, { assignedToId: userId });
+      // Optimistic update
+      setRun({
+        ...run,
+        items: run.items.map((i) =>
+          i.id === item.id ? { ...i, assignedTo: userId ? (i.assignedTo ?? { id: userId, email: '', name: '...', avatarUrl: null }) : null } : i
+        ),
+      });
+      fetchRun();
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : 'Failed to update assignment';
       toast({ title: 'Error', description: message, variant: 'destructive' });
     }
   };
@@ -238,6 +270,17 @@ export function RunDetailPage() {
           )}
           <div className="flex items-center gap-4 text-sm text-muted-foreground mt-2">
             <span>Created by {run.createdBy.name}</span>
+            <span className="flex items-center gap-1">
+              Assigned to{' '}
+              {isActive ? (
+                <UserPicker
+                  value={run.assignedTo?.id ?? null}
+                  onChange={handleAssignRun}
+                />
+              ) : (
+                <span>{run.assignedTo?.name ?? 'Unassigned'}</span>
+              )}
+            </span>
             <span>{new Date(run.createdAt).toLocaleString()}</span>
             {run.completedAt && <span>Completed {new Date(run.completedAt).toLocaleString()}</span>}
           </div>
@@ -305,6 +348,8 @@ export function RunDetailPage() {
               <th className="text-left text-xs font-medium text-muted-foreground px-4 py-3 w-24">Code</th>
               <th className="text-left text-xs font-medium text-muted-foreground px-4 py-3">Title</th>
               <th className="text-left text-xs font-medium text-muted-foreground px-4 py-3 w-36">Status</th>
+              <th className="text-left text-xs font-medium text-muted-foreground px-4 py-3 w-36">Assignee</th>
+              <th className="text-left text-xs font-medium text-muted-foreground px-4 py-3 w-12"></th>
               <th className="text-left text-xs font-medium text-muted-foreground px-4 py-3 w-40">Recorded By</th>
             </tr>
           </thead>
@@ -357,6 +402,24 @@ export function RunDetailPage() {
                     </DropdownMenu>
                   ) : (
                     <ResultStatusBadge status={item.result?.status ?? 'untested'} />
+                  )}
+                </td>
+                <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                  {isActive ? (
+                    <UserPicker
+                      value={item.assignedTo?.id ?? null}
+                      onChange={(userId) => handleAssignItem(item, userId)}
+                      compact
+                    />
+                  ) : (
+                    <span className="text-sm text-muted-foreground">
+                      {item.assignedTo?.name ?? '—'}
+                    </span>
+                  )}
+                </td>
+                <td className="px-4 py-3">
+                  {item.result?.attachments && item.result.attachments.length > 0 && (
+                    <AttachmentList attachments={item.result.attachments} compact />
                   )}
                 </td>
                 <td className="px-4 py-3 text-sm text-muted-foreground">

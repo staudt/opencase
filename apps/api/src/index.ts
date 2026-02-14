@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import cookie from '@fastify/cookie';
 import formbody from '@fastify/formbody';
+import multipart from '@fastify/multipart';
 
 import { config } from './config.js';
 import { prismaPlugin } from './plugins/prisma.js';
@@ -17,6 +18,7 @@ import { testRoutes } from './modules/tests/routes.js';
 import { tagRoutes } from './modules/tags/routes.js';
 import { exportRoutes } from './modules/export/routes.js';
 import { runRoutes, workspaceRunRoutes } from './modules/runs/routes.js';
+import { attachmentRoutes, attachmentDownloadRoutes } from './modules/attachments/routes.js';
 
 async function buildApp() {
   const app = Fastify({
@@ -43,6 +45,12 @@ async function buildApp() {
 
   await app.register(cookie);
   await app.register(formbody);
+  await app.register(multipart, {
+    limits: {
+      fileSize: 10 * 1024 * 1024, // 10MB
+      files: 5,
+    },
+  });
 
   // Custom plugins
   await app.register(prismaPlugin);
@@ -61,6 +69,8 @@ async function buildApp() {
   await app.register(exportRoutes, { prefix: '/api/projects/:projectId' });
   await app.register(runRoutes, { prefix: '/api/projects/:projectId/runs' });
   await app.register(workspaceRunRoutes, { prefix: '/api/workspaces/:workspaceId/runs' });
+  await app.register(attachmentRoutes, { prefix: '/api/projects/:projectId/attachments' });
+  await app.register(attachmentDownloadRoutes, { prefix: '/api/attachments' });
 
   return app;
 }

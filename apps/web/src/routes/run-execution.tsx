@@ -14,12 +14,15 @@ import {
   type RunItemDetail,
   type ResultDetail,
   type RunStats,
+  type Attachment,
   ApiError,
 } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
 import { RunProgressBar } from '@/components/runs/RunProgressBar';
 import { ResultStatusBadge } from '@/components/runs/ResultStatusBadge';
 import { ReadOnlyBlocks } from '@/components/runs/ReadOnlyBlocks';
+import { AttachmentUpload } from '@/components/runs/AttachmentUpload';
+import { AttachmentList } from '@/components/runs/AttachmentList';
 
 const RESULT_STATUSES = [
   { value: 'passed', label: 'Passed', color: '#22c55e', key: '1' },
@@ -40,6 +43,7 @@ export function RunExecutionPage() {
   const [error, setError] = useState<string | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [notes, setNotes] = useState('');
+  const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
   const [savingResult, setSavingResult] = useState(false);
 
   const fetchRun = useCallback(async () => {
@@ -73,11 +77,12 @@ export function RunExecutionPage() {
     }
   }, [run, searchParams]);
 
-  // Sync notes when current item changes
+  // Sync notes and attachments when current item changes
   useEffect(() => {
     if (!run) return;
     const item = run.items[currentIndex];
     setNotes(item?.result?.notes ?? '');
+    setPendingAttachments(item?.result?.attachments ?? []);
   }, [currentIndex, run]);
 
   const currentItem = run?.items[currentIndex] ?? null;
@@ -109,6 +114,7 @@ export function RunExecutionPage() {
           duration: i.result?.duration ?? null,
           recordedBy: i.result?.recordedBy ?? { id: '', email: '', name: '', avatarUrl: null },
           recordedAt: new Date().toISOString(),
+          attachments: pendingAttachments,
         },
       };
     });
@@ -119,6 +125,7 @@ export function RunExecutionPage() {
       await runApi.recordResult(projectId, runId, currentItem.id, {
         status,
         notes: notes || undefined,
+        attachmentIds: pendingAttachments.length > 0 ? pendingAttachments.map((a) => a.id) : undefined,
       });
     } catch (err) {
       setRun({ ...run, items: prevItems });
@@ -127,7 +134,7 @@ export function RunExecutionPage() {
     } finally {
       setSavingResult(false);
     }
-  }, [projectId, runId, run, currentItem, notes, savingResult, toast]);
+  }, [projectId, runId, run, currentItem, notes, pendingAttachments, savingResult, toast]);
 
   const handleClearResult = useCallback(async () => {
     if (!projectId || !runId || !run || !currentItem) return;
@@ -138,6 +145,7 @@ export function RunExecutionPage() {
     );
     setRun({ ...run, items: updatedItems, stats: computeLocalStats(updatedItems) });
     setNotes('');
+    setPendingAttachments([]);
 
     try {
       await runApi.clearResult(projectId, runId, currentItem.id);
@@ -250,6 +258,11 @@ export function RunExecutionPage() {
             <h2 className="text-xl font-semibold">
               {currentItem?.testVersion.title}
             </h2>
+            {currentItem?.assignedTo && (
+              <p className="text-sm text-muted-foreground mt-1">
+                Assigned to {currentItem.assignedTo.name || currentItem.assignedTo.email}
+              </p>
+            )}
           </div>
 
           {/* Test content blocks */}
@@ -319,6 +332,34 @@ export function RunExecutionPage() {
                 </p>
               )}
             </div>
+
+            {/* Attachments */}
+            {isActive ? (
+              <div>
+                <label className="text-sm font-medium text-muted-foreground mb-1 block">
+                  Attachments
+                </label>
+                <AttachmentUpload
+                  projectId={projectId!}
+                  attachments={pendingAttachments}
+                  onAttachmentsChange={setPendingAttachments}
+                />
+                {pendingAttachments.length > 0 && !currentStatus && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Click a status button to save attachments with the result.
+                  </p>
+                )}
+              </div>
+            ) : (
+              currentItem?.result?.attachments && currentItem.result.attachments.length > 0 && (
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground mb-1 block">
+                    Attachments
+                  </label>
+                  <AttachmentList attachments={currentItem.result.attachments} />
+                </div>
+              )
+            )}
           </div>
         </div>
       </div>

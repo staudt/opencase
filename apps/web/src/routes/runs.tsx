@@ -186,6 +186,14 @@ export function RunsPage() {
                   </span>
                 </div>
                 <div className="flex items-center gap-4 text-sm text-muted-foreground ml-4 flex-shrink-0">
+                  {run.assignedTo && (
+                    <span className="flex items-center gap-1" title="Assigned to">
+                      <span className="h-5 w-5 rounded-full bg-primary/10 text-primary text-[10px] font-medium flex items-center justify-center flex-shrink-0">
+                        {(run.assignedTo.name || run.assignedTo.email).charAt(0).toUpperCase()}
+                      </span>
+                      {run.assignedTo.name || run.assignedTo.email}
+                    </span>
+                  )}
                   <span className="flex items-center gap-1">
                     <User className="h-3.5 w-3.5" />
                     {run.createdBy.name}

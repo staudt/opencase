@@ -164,8 +164,8 @@ export function TagSelector({
                               )}
                               style={{
                                 backgroundColor: tag.color,
-                                ringColor: isSelected ? tag.color : undefined,
-                              }}
+                                '--tw-ring-color': isSelected ? tag.color : undefined,
+                              } as React.CSSProperties}
                             >
                               {isSelected && <Check className="h-3 w-3" />}
                               {tag.name}
