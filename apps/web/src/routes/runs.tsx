@@ -6,6 +6,7 @@ import { runApi, projectApi, type WorkspaceRun, type Project, type Run } from '@
 import { useWorkspaceStore } from '@/stores/workspace';
 import { RunProgressBar } from '@/components/runs/RunProgressBar';
 import { RunStatusBadge } from '@/components/runs/ResultStatusBadge';
+import { RunCompletionBadge } from '@/components/runs/RunCompletionBadge';
 import { CreateRunDialog } from '@/components/runs/CreateRunDialog';
 
 const STATUS_FILTERS = [
@@ -210,6 +211,7 @@ export function RunsPage() {
                   <RunProgressBar stats={run.stats} />
                 </div>
                 <div className="flex items-center gap-3 text-xs text-muted-foreground flex-shrink-0">
+                  <RunCompletionBadge stats={run.stats} />
                   {run.stats.passed > 0 && <span className="text-green-600">{run.stats.passed} passed</span>}
                   {run.stats.failed > 0 && <span className="text-red-600">{run.stats.failed} failed</span>}
                   {run.stats.blocked > 0 && <span className="text-amber-600">{run.stats.blocked} blocked</span>}

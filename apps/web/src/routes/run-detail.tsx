@@ -36,8 +36,8 @@ import {
 } from '@/lib/api';
 import { useWorkspaceStore } from '@/stores/workspace';
 import { useToast } from '@/hooks/use-toast';
-import { RunProgressBar } from '@/components/runs/RunProgressBar';
 import { ResultStatusBadge, RunStatusBadge } from '@/components/runs/ResultStatusBadge';
+import { RunStatsPanel } from '@/components/runs/RunStatsPanel';
 import { UserPicker } from '@/components/runs/UserPicker';
 import { AttachmentList } from '@/components/runs/AttachmentList';
 
@@ -323,21 +323,8 @@ export function RunDetailPage() {
         </div>
       </div>
 
-      {/* Stats bar */}
-      <div className="bg-card rounded-lg border p-4">
-        <div className="mb-3">
-          <RunProgressBar stats={run.stats} />
-        </div>
-        <div className="flex items-center gap-4 text-sm">
-          <StatCount label="Passed" count={run.stats.passed} color="#22c55e" />
-          <StatCount label="Failed" count={run.stats.failed} color="#ef4444" />
-          <StatCount label="Blocked" count={run.stats.blocked} color="#f59e0b" />
-          <StatCount label="Skipped" count={run.stats.skipped} color="#6b7280" />
-          <StatCount label="Retest" count={run.stats.retest} color="#8b5cf6" />
-          <StatCount label="Untested" count={run.stats.untested} color="#d1d5db" />
-          <span className="ml-auto font-medium">{run.stats.total} total</span>
-        </div>
-      </div>
+      {/* Stats panel */}
+      <RunStatsPanel stats={run.stats} items={run.items} />
 
       {/* Items table */}
       <div className="bg-card rounded-lg border overflow-hidden">
@@ -473,15 +460,6 @@ export function RunDetailPage() {
         </DialogContent>
       </Dialog>
     </div>
-  );
-}
-
-function StatCount({ label, count, color }: { label: string; count: number; color: string }) {
-  return (
-    <span className="flex items-center gap-1.5">
-      <span className="h-2.5 w-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
-      <span>{count} {label}</span>
-    </span>
   );
 }
 
